@@ -875,14 +875,16 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
     rr = driver.execute_js(js_findMainList + js_findMainContent + """
         return findMainList(findMainContent(document.body));""")
     sel = rr.get("selector", None) if isinstance(rr, dict) else None
-    if not sel: return html[:maxchars]
-    s = BeautifulSoup(str(soup), "html.parser"); items = s.select(sel)
-    hit = [it for it in items if instruction and instruction.strip() and instruction in it.get_text(" ",strip=True)]
-    keep = hit[:6] if hit else items[:3]
-    for it in items:
-        if it not in keep: it.decompose()
-    s = optimize_html_for_tokens(s)
-    return str(s)[:maxchars]
+    if sel: 
+        s = BeautifulSoup(str(soup), "html.parser"); items = s.select(sel)
+        hit = [it for it in items if instruction and instruction.strip() and instruction in it.get_text(" ",strip=True)]
+        keep = hit[:6] if hit else items[:3]
+        for it in items:
+            if it not in keep: it.decompose()
+        ss = str(optimize_html_for_tokens(s))
+    else: ss = html
+    if len(ss) > maxchars: ss = ss[:maxchars] + ' ... [TRUNCATED]'
+    return ss
 
 def execute_js_rich(script, driver):
     try: start_temp_monitor(driver)

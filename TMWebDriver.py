@@ -247,10 +247,7 @@ class TMWebDriver:
         return result['data']  
     
     def _remote_cmd(self, cmd):
-        resp = requests.post(self.remote, 
-            headers={"Content-Type": "application/json"},
-            json=cmd).json()
-        return resp
+        return requests.post(self.remote, headers={"Content-Type": "application/json"}, json=cmd).json()
 
     def get_all_sessions(self):  
         if self.is_remote:

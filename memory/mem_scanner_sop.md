@@ -31,3 +31,20 @@ python ../memory/mem_scanner.py <PID> "pattern" --llm
 ## 3. 注意事项
 - **权限**: 并非强制要求管理员权限，但需具备对目标进程的 `PROCESS_QUERY_INFORMATION` 和 `PROCESS_VM_READ` 权限。
 - **效率**: 搜索大块内存时，尽量提供更唯一的特征码以减少误报。
+
+## 4. 典型场景：CE式差集扫描定位动态字段（已验证）
+用于定位微信等自绘UI中「当前会话标题」等随操作变化的内存字段。
+
+**方法（类似Cheat Engine找游戏数值）：**
+1. 找到主窗口PID（Weixin.exe有多个进程，用win32gui.GetWindowThreadProcessId取有窗口的那个）
+2. 切到会话A → `scan_memory(pid, "人名A", mode="string")` → 得地址集S_A
+3. 切到会话B → `scan_memory(pid, "人名B", mode="string")` → 得地址集S_B
+4. 差集：S_A独有地址（A时有、B时无）= 候选地址
+5. 切回A → 用ReadProcessMemory逐个读候选地址，确认内容变回"人名A"的即为目标
+6. 再切第3、4个人交叉验证
+
+**坑点：**
+- 搜索切换会污染结果（搜索框缓存也含人名），最终验证应用列表点击而非搜索
+- 地址是绝对虚拟地址，进程重启后失效，需重新校准（约10秒）
+- ReadProcessMemory读UTF-8，用`raw.split(b'\x00')[0].decode('utf-8')`提取干净文本
+- 微信主进程名为Weixin.exe（非WeChat.exe）
