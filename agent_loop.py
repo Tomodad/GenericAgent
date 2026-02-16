@@ -78,6 +78,7 @@ def agent_runner_loop(client, system_prompt, user_input, handler, tools_schema, 
 
         if outcome.next_prompt is None: return {'result': 'CURRENT_TASK_DONE', 'data': outcome.data}
         if outcome.should_exit: return {'result': 'EXITED', 'data': outcome.data}
+        if outcome.next_prompt.startswith('未知工具'): client.last_tools = ''
 
         next_prompt = ""
         if outcome.data is not None: 

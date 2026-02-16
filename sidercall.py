@@ -328,6 +328,7 @@ class ToolClient:
             except json.JSONDecodeError as e:
                 print("[Warn] Failed to parse tool_use JSON:", json_str)
                 tool_calls = [MockToolCall('bad_json', {'msg': f'Failed to parse tool_use JSON: {json_str[:200]}'})]
+                self.last_tools = ''   # llm肯定忘了tool schema了，再提供下
             except Exception as e:
                 print("[Error] Exception during tool_use parsing:", str(e), data)
 

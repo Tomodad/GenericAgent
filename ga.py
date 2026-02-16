@@ -40,7 +40,8 @@ def code_run(code, code_type="python", timeout=60, cwd=None, code_cwd=None, stop
             try: line = line_bytes.decode('utf-8')
             except UnicodeDecodeError: line = line_bytes.decode('gbk', errors='ignore')
             logs.append(line)
-            print(line, end="") 
+            try: print(line, end="") 
+            except: pass
 
     try:
         process = subprocess.Popen(
@@ -310,7 +311,8 @@ class GenericAgentHandler(BaseHandler):
                 result["js_return"] += f"\n\n[已保存完整内容到 {abs_path}]"
             except:
                 result['js_return'] += f"\n\n[保存失败，无法写入文件 {abs_path}]"
-        print("Web Execute JS Result:", smart_format(result))
+        try: print("Web Execute JS Result:", smart_format(result))
+        except: pass
         yield f"JS 执行结果:\n{smart_format(result)}\n"
         next_prompt = self._get_anchor_prompt()
         return StepOutcome(smart_format(result, max_str_len=5000), next_prompt=next_prompt)
