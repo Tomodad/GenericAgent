@@ -58,6 +58,9 @@ memory/*
 # TMWebDriver SOP
 !memory/tmwebdriver_sop.md
 
+# Subagent SOP
+!memory/subagent_sop.md
+
 # ADB UI tool
 !memory/adb_ui.py
 

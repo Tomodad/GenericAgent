@@ -114,10 +114,10 @@ def web_scan(tabs_only=False, switch_tab_id=None):
     应当多用execute_js，少全量观察html。
     """
     global driver
-    if driver is None: first_init_driver()
-    if len(driver.get_all_sessions()) == 0:
-        return {"status": "error", "msg": "没有可用的浏览器标签页，请先打开一个浏览器标签页，且确认TMWebDriver浏览器tempermonkey插件已安装并启用。"}
     try:
+        if driver is None: first_init_driver()
+        if len(driver.get_all_sessions()) == 0:
+            return {"status": "error", "msg": "没有可用的浏览器标签页，请先打开一个浏览器标签页，且确认TMWebDriver浏览器tempermonkey插件已安装并启用。"}
         tabs = []
         for sess in driver.get_all_sessions(): 
             sess.pop('connected_at', None)
@@ -165,10 +165,10 @@ def web_execute_js(script: str):
     }
     """
     global driver
-    if driver is None: first_init_driver()
-    if len(driver.get_all_sessions()) == 0:
-        return {"status": "error", "msg": "没有可用的浏览器标签页，请先打开一个浏览器标签页，且确认TMWebDriver浏览器tempermonkey插件已安装并启用。"}
     try:
+        if driver is None: first_init_driver()
+        if len(driver.get_all_sessions()) == 0:
+            return {"status": "error", "msg": "没有可用的浏览器标签页，请先打开一个浏览器标签页，且确认TMWebDriver浏览器tempermonkey插件已安装并启用。"}
         result = execute_js_rich(script, driver)
         return result
     except Exception as e:

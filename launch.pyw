@@ -58,6 +58,7 @@ if __name__ == '__main__':
     parser.add_argument('port', nargs='?', default='8501'); 
     parser.add_argument('--no-tg', action='store_true', help='不启动 Telegram Bot'); 
     parser.add_argument('--no-sched', action='store_true', help='不启动计划任务调度器')
+    parser.add_argument('--llm_no', type=int, default=0, help='LLM编号')
     args = parser.parse_args()
     port = args.port
     threading.Thread(target=start_streamlit, args=(port,), daemon=True).start()
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     if not args.no_sched:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); sock.bind(('127.0.0.1', 45762)); sock.listen(1)
-            scheduler_proc = subprocess.Popen([sys.executable, "agentmain.py"], creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0); 
+            scheduler_proc = subprocess.Popen([sys.executable, "agentmain.py", "--scheduled", "--llm_no", str(args.llm_no)], creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0); 
             atexit.register(lambda: (scheduler_proc.kill(), sock.close()))
             print('[Launch] Task Scheduler started')
         except OSError:
