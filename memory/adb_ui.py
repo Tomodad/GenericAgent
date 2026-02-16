@@ -1,5 +1,5 @@
-# adb_ui.py - 一键dump+解析Android UI
-# PITFALLS: dump已内置--compressed; 美团等动画app需先禁动画(adb shell settings put global animator_duration_scale 0 ...共3条);
+# adb_ui.py - 一键dump+解析Android UI (u2优先，原生fallback)
+# u2 (uiautomator2) 不受idle限制，适合动画密集app（美团等）
 # 弹窗检测: ui(clickable_only=True, raw=True) 找全屏FrameLayout+底部小ImageView(关闭X)
 # 已知包名: 美团外卖=com.sankuai.meituan.takeoutnew 淘宝=com.taobao.taobao
 import subprocess, xml.etree.ElementTree as ET, os, re, shutil
@@ -7,28 +7,41 @@ import subprocess, xml.etree.ElementTree as ET, os, re, shutil
 ADB = shutil.which("adb") or "adb"
 LOCAL_XML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui_mt.xml")
 
-def ui(keyword=None, clickable_only=False, raw=False):
-    """一键dump+解析Android UI
-    keyword: 过滤含关键词的节点
-    clickable_only: 只显示可点击节点
-    raw: 返回原始节点列表而非打印
-    """
+def _dump_u2():
+    """用uiautomator2 dump，不受idle限制"""
+    try:
+        import uiautomator2 as u2
+        d = u2.connect()
+        xml_str = d.dump_hierarchy()
+        if xml_str and len(xml_str) > 100:
+            return xml_str
+    except Exception as e:
+        print(f"[u2 fallback] {e}")
+    return None
+
+def _dump_native():
+    """原生uiautomator dump（需idle状态）"""
     subprocess.run([ADB, "shell", "rm", "-f", "/sdcard/ui.xml"], capture_output=True)
     r = subprocess.run([ADB, "shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml"],
                        capture_output=True, text=True, timeout=15)
     if "dumped" not in r.stdout.lower() and "dumped" not in r.stderr.lower():
         print(f"dump failed: {r.stdout}{r.stderr}")
-        return []
+        return None
     subprocess.run([ADB, "pull", "/sdcard/ui.xml", LOCAL_XML], capture_output=True, timeout=10)
+    with open(LOCAL_XML, "r", encoding="utf-8") as f:
+        return f.read()
 
-    tree = ET.parse(LOCAL_XML)
+def _parse_xml(xml_str, keyword=None, clickable_only=False, raw=False):
+    """解析XML字符串为节点列表"""
+    root = ET.fromstring(xml_str)
     nodes = []
-    for n in tree.getroot().iter("node"):
+    for n in root.iter("node"):
         text = n.get("text", "")
         desc = n.get("content-desc", "")
         bounds = n.get("bounds", "")
         click = n.get("clickable") == "true"
         cls = n.get("class", "").split(".")[-1]
+        rid = n.get("resource-id", "")
         label = text or desc
         if not label and not raw:
             continue
@@ -42,8 +55,21 @@ def ui(keyword=None, clickable_only=False, raw=False):
             if len(m) == 2:
                 cx = (int(m[0][0]) + int(m[1][0])) // 2
                 cy = (int(m[0][1]) + int(m[1][1])) // 2
-        nodes.append({"label": label, "click": click, "bounds": bounds, "cx": cx, "cy": cy, "class": cls})
+        nodes.append({"label": label, "click": click, "bounds": bounds,
+                      "cx": cx, "cy": cy, "class": cls, "id": rid})
+    return nodes
 
+def ui(keyword=None, clickable_only=False, raw=False):
+    """一键dump+解析Android UI (u2优先)
+    keyword: 过滤含关键词的节点
+    clickable_only: 只显示可点击节点
+    raw: 返回原始节点列表而非打印
+    """
+    xml_str = _dump_u2() or _dump_native()
+    if not xml_str:
+        print("dump failed (both u2 and native)")
+        return []
+    nodes = _parse_xml(xml_str, keyword, clickable_only, raw)
     if not raw:
         for n in nodes:
             flag = "Y" if n["click"] else " "
