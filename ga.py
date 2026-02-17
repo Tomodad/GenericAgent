@@ -468,11 +468,7 @@ def get_global_memory():
         with open('memory/global_mem_insight.txt', 'r', encoding='utf-8') as f: insight = f.read()
         with open('assets/insight_fixed_structure.txt', 'r', encoding='utf-8') as f: structure = f.read()
         prompt += f"\n[Memory]\n"
-        prompt += 'IMPORTANT PATHS: ../memory/global_mem.txt (Facts), ../ (Your Code Dir)\n'
-        prompt += f'cwd = {os.path.abspath("./temp")}\n'
-        prompt += f'But prefer use relative paths (./ = cwd) to locate.\n'
-        prompt += 'MEM_RULE: Insight is the index. Sync Insight whenever Facts change. For details, read Facts.\n'
-        prompt += "EXT: ../memory/ may contain other task-specific memories.\n"
+        prompt += f'cwd = {os.path.abspath("./temp")}  （用./引用）\n'
         prompt += structure + '\n../memory/global_mem_insight.txt:\n'
         prompt += insight + "\n"
     except FileNotFoundError: pass
