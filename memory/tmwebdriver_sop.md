@@ -30,3 +30,13 @@
 ## 导航避坑
 - `web_scan` 仅读当前页，不会导航。
 - 切换网站用 `web_execute_js` + `location.href = 'url'`。
+
+## Google图片搜索操作
+- **class名不可靠**：Google的class均为混淆名(如F0uyec)，随版本变化，禁止硬编码
+- 点击图片结果：找搜索结果区内 `[role=button]` 的div，而非外层容器或内部a/img
+- `web_scan` 会过滤边栏内容，边栏弹出后用JS提取：
+  - 文本：`document.body.innerText`
+  - 大图：遍历所有img，按 `naturalWidth` 最大的那个取src（通常>600px）
+- "访问"链接：遍历所有`a`找`textContent.includes('访问')`的href
+- 缩略图base64：结果中`img[src^="data:image"]`可直接提取保存
+- 下载大图时注意JS返回的src可能被截断，用`return img.src`获取完整URL

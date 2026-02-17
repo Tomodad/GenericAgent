@@ -97,23 +97,25 @@ if __name__ == '__main__':
     threading.Thread(target=agent.run, daemon=True).start()
     proxy = vars(mykey).get('proxy', 'http://127.0.0.1:2082')
     print('proxy:', proxy)
-    request = HTTPXRequest(proxy=proxy, read_timeout=30, write_timeout=30, connect_timeout=30, pool_timeout=30)
-    app = (ApplicationBuilder()
-           .token(mykey.tg_bot_token)
-           .request(request)
-           .get_updates_request(request)
-           .build())
-    app.add_handler(CommandHandler("stop", cmd_abort))
-    app.add_handler(CommandHandler("llm", cmd_llm))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
 
     async def _error_handler(update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[{time.strftime('%m-%d %H:%M')}] TG error: {context.error}", flush=True)
-    app.add_error_handler(_error_handler)
 
-    print(f"TG bot starting... {time.strftime('%m-%d %H:%M')}")
     while True:
         try:
+            print(f"TG bot starting... {time.strftime('%m-%d %H:%M')}")
+            # Recreate request and app objects on each restart to avoid stale connections
+            request = HTTPXRequest(proxy=proxy, read_timeout=30, write_timeout=30, connect_timeout=30, pool_timeout=30)
+            app = (ApplicationBuilder()
+                   .token(mykey.tg_bot_token)
+                   .request(request)
+                   .get_updates_request(request)
+                   .build())
+            app.add_handler(CommandHandler("stop", cmd_abort))
+            app.add_handler(CommandHandler("llm", cmd_llm))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
+            app.add_error_handler(_error_handler)
+            
             app.run_polling(
                 drop_pending_updates=True,
                 poll_interval=1.0,
@@ -122,3 +124,4 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"[{time.strftime('%m-%d %H:%M')}] polling crashed: {e}", flush=True)
             time.sleep(10)
+            asyncio.set_event_loop(asyncio.new_event_loop())

@@ -5,7 +5,7 @@ if sys.stderr is None: sys.stderr = open(os.devnull, "w")
 elif hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(errors='replace')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from sidercall import SiderLLMSession, LLMSession, ToolClient, ClaudeSession
+from sidercall import SiderLLMSession, LLMSession, ToolClient, ClaudeSession, XaiSession
 from agent_loop import agent_runner_loop, StepOutcome, BaseHandler
 from ga import GenericAgentHandler, smart_format, get_global_memory, format_error
 
@@ -28,14 +28,15 @@ def get_system_prompt():
 class GeneraticAgent:
     def __init__(self):
         if not os.path.exists('temp'): os.makedirs('temp')
-        from sidercall import sider_cookie, oai_configs, claude_configs
+        from sidercall import sider_cookie, oai_configs, claude_configs, xai_api_key, proxy
         llm_sessions = []
         for cfg in claude_configs.values():
             llm_sessions += [ClaudeSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'])]
         if sider_cookie: llm_sessions += [SiderLLMSession(default_model=x) for x in \
                                     ["gemini-3.0-flash", "claude-haiku-4.5", "kimi-k2"]]
+        if xai_api_key: llm_sessions += [XaiSession(xai_api_key, proxy)]
         for cfg in oai_configs.values():
-            llm_sessions += [LLMSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'])]
+            llm_sessions += [LLMSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'], proxy=cfg.get('proxy'))]
         if len(llm_sessions) > 0: self.llmclient = ToolClient(llm_sessions, auto_save_tokens=True)
         else: self.llmclient = None
         self.lock = threading.Lock()
@@ -51,7 +52,9 @@ class GeneraticAgent:
         self.llm_no = ((self.llm_no + 1) if n < 0 else n) % len(self.llmclient.backends)
         self.llmclient.last_tools = ''
     def list_llms(self): return [(i, b.default_model, i == self.llm_no) for i, b in enumerate(self.llmclient.backends)]
-    def get_llm_name(self): return self.llmclient.backends[self.llm_no].default_model
+    def get_llm_name(self):
+        b = self.llmclient.backends[self.llm_no]
+        return f"{type(b).__name__}/{b.default_model}"
 
     def abort(self):
         print('Abort current task...')
@@ -59,7 +62,7 @@ class GeneraticAgent:
         self.stop_sig = True
         if self.handler is not None: 
             self.handler.code_stop_signal.append(1)
-
+            
     def put_task(self, query, source="user"):
         display_queue = queue.Queue()
         self.task_queue.put({"query": query, "source": source, "output": display_queue})
@@ -75,6 +78,9 @@ class GeneraticAgent:
             
             sys_prompt = get_system_prompt()
             handler = GenericAgentHandler(None, self.history, './temp')
+            if self.handler and self.handler.key_info: 
+                handler.key_info = self.handler.key_info
+                handler.key_info += '\n如你确信任务已经改变，请先更新工作记忆去除无用部分\n'
             self.handler = handler
             self.llmclient.backend = self.llmclient.backends[self.llm_no]
             gen = agent_runner_loop(self.llmclient, sys_prompt, raw_query, 

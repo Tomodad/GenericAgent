@@ -9,6 +9,7 @@ sider_cookie = mykeys.get("sider_cookie")
 oai_configs = {k: v for k, v in vars(mykey).items() if k.startswith("oai_config") and v}
 claude_configs = {k: v for k, v in vars(mykey).items() if k.startswith("claude_config") and v}
 google_api_key = mykeys.get("google_api_key")
+xai_api_key = mykeys.get("xai_api_key")
 
 proxy = mykeys.get("proxy", 'http://127.0.0.1:2082')
 proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -90,13 +91,10 @@ class ClaudeSession:
         return _ask_gen() if stream else ''.join(list(_ask_gen()))
 
 class LLMSession:
-    def __init__(self, api_key, api_base, model, context_win=16000):
-        self.api_key = api_key
-        self.api_base = api_base
-        self.raw_msgs = []
-        self.messages = []
-        self.context_win = context_win
-        self.default_model = model
+    def __init__(self, api_key, api_base, model, context_win=12000, proxy=None):
+        self.api_key = api_key; self.api_base = api_base; self.default_model = model
+        self.context_win = context_win; self.raw_msgs = []; self.messages = []
+        self.proxies = {"http": proxy, "https": proxy} if proxy else None
         self.lock = threading.Lock()
 
     def raw_ask(self, messages, model=None, temperature=0.5):
@@ -104,8 +102,8 @@ class LLMSession:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
         payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
         try:
-            with requests.post(f"{self.api_base}/chat/completions",
-                            headers=headers, json=payload, stream=True, timeout=(5, 60)) as r:
+            with requests.post(f"{self.api_base}/chat/completions", headers=headers, 
+                               json=payload, stream=True, timeout=(5, 60), proxies=self.proxies) as r:
                 r.raise_for_status()
                 buffer = ''
                 for line in r.iter_lines():
@@ -208,6 +206,44 @@ class GeminiSession:
         except Exception as e:
             return f"[GeminiError] invalid response format: {e}"
         return iter([full_text]) if stream else full_text
+
+class XaiSession:
+    def __init__(self, api_key, proxy="http://127.0.0.1:2082", default_model="grok-4-1-fast-non-reasoning"):
+        import xai_sdk
+        from xai_sdk.chat import user, system
+        self._user, self._system = user, system
+        self.default_model = default_model
+        self._last_response_id = None  # 多轮对话链
+        os.environ["XAI_API_KEY"] = api_key
+        if not proxy.startswith("http"): proxy = f"http://{proxy}"
+        os.environ.setdefault("grpc_proxy", proxy)
+        self._client = xai_sdk.Client()
+    def ask(self, prompt, model=None, system_prompt=None, stream=False):
+        """发送消息，自动串联多轮对话；stream=True返回生成器"""
+        mdl = model or self.default_model
+        try:
+            kw = dict(model=mdl, store_messages=True)
+            if self._last_response_id: kw["previous_response_id"] = self._last_response_id
+            chat = self._client.chat.create(**kw)
+            if system_prompt: chat.append(self._system(system_prompt))
+            chat.append(self._user(prompt))
+            if stream: return self._stream(chat)
+            resp = chat.sample()
+            self._last_response_id = resp.id
+            return resp.content
+        except Exception as e:
+            err = f"[XaiError] {e}"
+            return iter([err]) if stream else err
+    def _stream(self, chat):
+        try:
+            last_resp = None
+            for resp, chunk in chat.stream():
+                last_resp = resp
+                if chunk and chunk.content: yield chunk.content
+            if last_resp and hasattr(last_resp, 'id'): self._last_response_id = last_resp.id
+        except Exception as e:
+            yield f"[XaiError] {e}"
+    def reset(self): self._last_response_id = None
 
 class MockFunction:
     def __init__(self, name, arguments): self.name, self.arguments = name, arguments  

@@ -42,6 +42,7 @@ def render_sidebar():
     if st.button("强行停止任务"):
         agent.abort()
         st.toast("已发送停止信号")
+        st.rerun()
     if st.button("重新注入System Prompt"):
         agent.llmclient.last_tools = ''
         st.toast("下次将重新注入System Prompt")
