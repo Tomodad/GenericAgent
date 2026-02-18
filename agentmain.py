@@ -80,8 +80,8 @@ class GeneraticAgent:
             handler = GenericAgentHandler(None, self.history, './temp')
             if self.handler and self.handler.key_info: 
                 handler.key_info = self.handler.key_info
-                if '如你确信任务已经改变' not in handler.key_info:
-                    handler.key_info += '\n如你确信任务已经改变，请先更新工作记忆去除无用部分\n'
+                if '如需可更新工作记忆去除无用部分' not in handler.key_info:
+                    handler.key_info += '\n如需可更新工作记忆去除无用部分\n'
             self.handler = handler
             self.llmclient.backend = self.llmclient.backends[self.llm_no]
             gen = agent_runner_loop(self.llmclient, sys_prompt, raw_query, 
