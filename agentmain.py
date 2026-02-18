@@ -80,7 +80,8 @@ class GeneraticAgent:
             handler = GenericAgentHandler(None, self.history, './temp')
             if self.handler and self.handler.key_info: 
                 handler.key_info = self.handler.key_info
-                handler.key_info += '\n如你确信任务已经改变，请先更新工作记忆去除无用部分\n'
+                if '如你确信任务已经改变' not in handler.key_info:
+                    handler.key_info += '\n如你确信任务已经改变，请先更新工作记忆去除无用部分\n'
             self.handler = handler
             self.llmclient.backend = self.llmclient.backends[self.llm_no]
             gen = agent_runner_loop(self.llmclient, sys_prompt, raw_query, 
@@ -93,8 +94,9 @@ class GeneraticAgent:
                     if len(full_resp) - last_pos > 50:
                         display_queue.put({'next': full_resp[last_pos:] if self.inc_out else full_resp, 'source': source})
                         last_pos = len(full_resp)
+                if self.inc_out and last_pos < len(full_resp): display_queue.put({'next': full_resp[last_pos:], 'source': source})
                 if '</summary>' in full_resp: full_resp = full_resp.replace('</summary>', '</summary>\n\n')
-                if '</file_content>' in full_resp: full_resp = re.sub(r'<file_content>\s*(.*?)\s*</file_content>', r'\n````\n<file_content>\n\1\n</file_content>\n````', full_resp, flags=re.DOTALL)
+                if '</file_content>' in full_resp: full_resp = re.sub(r'<file_content>\s*(.*?)\s*</file_content>', r'\n````\n<file_content>\n\1\n</file_content>\n````', full_resp, flags=re.DOTALL)                
                 display_queue.put({'done': full_resp, 'source': source})
                 self.history = handler.history_info
             except Exception as e:
@@ -139,21 +141,25 @@ if __name__ == '__main__':
             open('./temp/scheduler.log', 'a', encoding='utf-8').write(f'[{datetime.now():%m-%d %H:%M}] {tag}\n{item["done"]}\n\n')
         while True:
             now = datetime.now()
-            for f in os.listdir('./tasks/pending'):
+            for f in os.listdir('./sche_tasks/pending'):
                 m = re.match(r'(\d{4}-\d{2}-\d{2})_(\d{4})_', f)
                 if m and now >= datetime.strptime(f'{m[1]} {m[2]}', '%Y-%m-%d %H%M'):
-                    raw = open(f'./tasks/pending/{f}', encoding='utf-8').read()
-                    dq = agent.put_task(f'按scheduled_task_sop执行任务文件 ../tasks/pending/{f}（立刻移到running）\n内容：\n{raw}', source='scheduler')
+                    raw = open(f'./sche_tasks/pending/{f}', encoding='utf-8').read()
+                    dq = agent.put_task(f'按scheduled_task_sop执行任务文件 ../sche_tasks/pending/{f}（立刻移到running）\n内容：\n{raw}', source='scheduler')
                     threading.Thread(target=drain, args=(dq, f), daemon=True).start()
                     break
             time.sleep(55 + random.random() * 10)
     else:
         agent.inc_out = True
         while True:
-            q = input('> ').strip()
-            if not q: continue
-            dq = agent.put_task(q, source='user')
-            while True:
-                item = dq.get()
-                if 'next' in item: print(item['next'], end='', flush=True)
-                if 'done' in item: print(); break
+            try:
+                q = input('> ').strip()
+                if not q: continue
+                dq = agent.put_task(q, source='user')
+                while True:
+                    item = dq.get()
+                    if 'next' in item: print(item['next'], end='', flush=True)
+                    if 'done' in item: print(); break
+            except KeyboardInterrupt:
+                agent.abort()
+                print('\n[Interrupted]')

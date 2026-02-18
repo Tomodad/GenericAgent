@@ -59,6 +59,14 @@ cp mykey_template.py mykey.py
 python launch.pyw
 ```
 
+**Also runs on Android** — tested successfully on Termux with `python agentmain.py` (CLI frontend):
+
+```bash
+# In Termux
+cd /sdcard/ga
+python agentmain.py
+```
+
 Once running, tell the agent: *"Execute web setup SOP to unlock browser tools"* — it handles the rest. See [WELCOME_NEW_USER.md](WELCOME_NEW_USER.md) for the full bootstrap sequence.
 
 ## vs. Alternatives
@@ -191,6 +199,14 @@ cp mykey_template.py mykey.py
 
 # 4. 启动
 python launch.pyw
+```
+
+**同样可在 Android 上运行** — 已在 Termux 上测试通过，通过 `python agentmain.py`（CLI 前端）启动：
+
+```bash
+# 在 Termux 中
+cd /sdcard/ga
+python agentmain.py
 ```
 
 启动后告诉 Agent："执行 web setup SOP 解锁浏览器工具"——剩下的它自己搞定。完整引导流程见 [WELCOME_NEW_USER.md](WELCOME_NEW_USER.md)。

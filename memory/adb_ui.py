@@ -13,8 +13,7 @@ def _dump_u2():
         import uiautomator2 as u2
         d = u2.connect()
         xml_str = d.dump_hierarchy()
-        if xml_str and len(xml_str) > 100:
-            return xml_str
+        if xml_str and len(xml_str) > 100: return xml_str
     except Exception as e:
         print(f"[u2 fallback] {e}")
     return None
@@ -24,9 +23,7 @@ def _dump_native():
     subprocess.run([ADB, "shell", "rm", "-f", "/sdcard/ui.xml"], capture_output=True)
     r = subprocess.run([ADB, "shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml"],
                        capture_output=True, text=True, timeout=15)
-    if "dumped" not in r.stdout.lower() and "dumped" not in r.stderr.lower():
-        print(f"dump failed: {r.stdout}{r.stderr}")
-        return None
+    if "dumped" not in r.stdout.lower() and "dumped" not in r.stderr.lower(): print(f"dump failed: {r.stdout}{r.stderr}"); return None
     subprocess.run([ADB, "pull", "/sdcard/ui.xml", LOCAL_XML], capture_output=True, timeout=10)
     with open(LOCAL_XML, "r", encoding="utf-8") as f:
         return f.read()
@@ -36,6 +33,8 @@ def _parse_xml(xml_str, keyword=None, clickable_only=False, raw=False):
     root = ET.fromstring(xml_str)
     nodes = []
     for n in root.iter("node"):
+        pkg = n.get("package", "")
+        if "termux" in pkg.lower(): continue
         text = n.get("text", "")
         desc = n.get("content-desc", "")
         bounds = n.get("bounds", "")
@@ -43,20 +42,17 @@ def _parse_xml(xml_str, keyword=None, clickable_only=False, raw=False):
         cls = n.get("class", "").split(".")[-1]
         rid = n.get("resource-id", "")
         label = text or desc
-        if not label and not raw:
-            continue
-        if clickable_only and not click:
-            continue
-        if keyword and keyword.lower() not in (label or "").lower():
-            continue
+        if not label and not raw: continue
+        if clickable_only and not click: continue
+        if keyword and keyword.lower() not in label.lower(): continue
         cx, cy = 0, 0
         if bounds:
             m = re.findall(r'\[(\d+),(\d+)\]', bounds)
             if len(m) == 2:
                 cx = (int(m[0][0]) + int(m[1][0])) // 2
                 cy = (int(m[0][1]) + int(m[1][1])) // 2
-        nodes.append({"label": label, "click": click, "bounds": bounds,
-                      "cx": cx, "cy": cy, "class": cls, "id": rid})
+        nodes.append({"text": text or desc, "click": click,
+                      "bounds": bounds, "cx": cx, "cy": cy, "class": cls, "id": rid})
     return nodes
 
 def ui(keyword=None, clickable_only=False, raw=False):
@@ -66,15 +62,13 @@ def ui(keyword=None, clickable_only=False, raw=False):
     raw: 返回原始节点列表而非打印
     """
     xml_str = _dump_u2() or _dump_native()
-    if not xml_str:
-        print("dump failed (both u2 and native)")
-        return []
+    if not xml_str: print("dump failed (both u2 and native)"); return []
     nodes = _parse_xml(xml_str, keyword, clickable_only, raw)
     if not raw:
         for n in nodes:
             flag = "Y" if n["click"] else " "
             coord = f"({n['cx']},{n['cy']})" if n['cx'] else ""
-            print(f"[{flag}] {n['label']}  {coord}  {n['bounds']}")
+            print(f"[{flag}] {n['text']}  {coord}  {n['bounds']}")
         print(f"\ntotal: {len(nodes)} nodes")
     return nodes
 

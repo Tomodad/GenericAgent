@@ -40,3 +40,17 @@
 - "访问"链接：遍历所有`a`找`textContent.includes('访问')`的href
 - 缩略图base64：结果中`img[src^="data:image"]`可直接提取保存
 - 下载大图时注意JS返回的src可能被截断，用`return img.src`获取完整URL
+
+## Chrome下载PDF（fetch+blob方案）
+- 场景：页面上的PDF链接点击后会在浏览器内预览而非下载
+- 方案：用JS `fetch(url)` 获取blob → `URL.createObjectURL(blob)` → 创建隐藏`<a>`标签设`download`属性 → 触发click → 自动下载到~/Downloads
+- 模板：
+  ```js
+  fetch('PDF_URL').then(r=>r.blob()).then(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download='filename.pdf';
+    a.click();
+  });
+  ```
+- 注意：需同源或CORS允许；跨域时可能需要先导航到目标域再执行
