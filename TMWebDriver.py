@@ -97,7 +97,7 @@ class TMWebDriver:
                 auto_switch_newtab = data.get('auto_switch_newtab', False)
                 try:
                     result = self.execute_js(code, timeout=timeout, session_id=session_id, auto_switch_newtab=auto_switch_newtab)
-                    print('[remote result]', str(result)[:500])
+                    print('[remote result]', str(result)[:500].replace('\n', ' '))
                     newTabs = result.get('newTabs', []) if isinstance(result, dict) else []
                     return json.dumps({'result': result, 'newTabs': newTabs}, ensure_ascii=False)
                 except Exception as e:
@@ -175,7 +175,7 @@ class TMWebDriver:
                 session.mark_disconnected()
                 break  
     
-    def execute_js(self, code, timeout=10.0, session_id=None, auto_switch_newtab=False) -> Any:  
+    def execute_js(self, code, timeout=15, session_id=None, auto_switch_newtab=False) -> Any:  
         if session_id is None: session_id = self.default_session_id  
         if self.is_remote:
             print('remote_execute_js')

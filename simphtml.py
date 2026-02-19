@@ -904,7 +904,6 @@ def execute_js_rich(script, driver):
         if isinstance(error, dict): error.pop('stack', None)
         error_msg = str(error)
         print(f"Error: {error_msg}")
-
     if driver.default_session_id != curr_session:
         print('Session changed')
         new_tab = True
