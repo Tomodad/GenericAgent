@@ -56,13 +56,13 @@ def render_sidebar():
         if st.button("⏸️ 禁止自主行动"):
             st.session_state.autonomous_enabled = False
             st.toast("⏸️ 已禁止自主行动")
-            st.rerun(scope="fragment")
+            st.rerun()
         st.caption("🟢 自主行动运行中，会在你离开它30分钟后自动进行")
     else:
         if st.button("▶️ 允许自主行动", type="primary"):
             st.session_state.autonomous_enabled = True
             st.toast("✅ 已允许自主行动")
-            st.rerun(scope="fragment")
+            st.rerun()
         st.caption("🔴 自主行动已停止")
 with st.sidebar: render_sidebar()
 
