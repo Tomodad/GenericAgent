@@ -17,6 +17,7 @@ class Session:
     @property
     def url(self): return self.info.get('url', '')
     def is_active(self):
+        if self.type == 'http' and time.time() - self.connect_at > 60: self.mark_disconnected()
         return self.disconnect_at is None
     def reconnect(self, client, info):
         self.info = info
@@ -63,7 +64,7 @@ class TMWebDriver:
             session.disconnect_at = None
             if session.type == 'http': msgQ = session.http_queue
             else: return json.dumps({"id": "", "ret": "use ws"})
-            start_time = time.time()
+            session.connect_at = start_time = time.time()
             while time.time() - start_time < 5:
                 try:
                     msg = msgQ.get(timeout=0.2)

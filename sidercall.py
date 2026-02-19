@@ -5,12 +5,6 @@ try: import mykey
 except: raise Exception('[ERROR] mykey.py not found, please copy mykey_template.py to mykey.py and fill your LLM backend.')
 
 mykeys = vars(mykey)
-sider_cookie = mykeys.get("sider_cookie")
-oai_configs = {k: v for k, v in vars(mykey).items() if k.startswith("oai_config") and v}
-claude_configs = {k: v for k, v in vars(mykey).items() if k.startswith("claude_config") and v}
-google_api_key = mykeys.get("google_api_key")
-xai_api_key = mykeys.get("xai_api_key")
-
 proxy = mykeys.get("proxy", 'http://127.0.0.1:2082')
 proxies = {"http": proxy, "https": proxy} if proxy else None
 
@@ -28,7 +22,7 @@ def compress_history_tags(messages, keep_recent=4, max_len=200):
     return messages
 
 class SiderLLMSession:
-    def __init__(self, default_model="gemini-3.0-flash"):
+    def __init__(self, sider_cookie, default_model="gemini-3.0-flash"):
         from sider_ai_api import Session
         self._core = Session(cookie=sider_cookie, proxies=proxies)   
         self.default_model = default_model

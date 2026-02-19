@@ -28,15 +28,15 @@ def get_system_prompt():
 class GeneraticAgent:
     def __init__(self):
         if not os.path.exists('temp'): os.makedirs('temp')
-        from sidercall import sider_cookie, oai_configs, claude_configs, xai_api_key, proxy
+        from sidercall import mykeys
         llm_sessions = []
-        for cfg in claude_configs.values():
-            llm_sessions += [ClaudeSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'])]
-        if sider_cookie: llm_sessions += [SiderLLMSession(default_model=x) for x in \
+        for k, cfg in mykeys.items():
+            if not any(x in k for x in ['api', 'config', 'cookie']): continue
+            if 'claude' in k: llm_sessions += [ClaudeSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'])]
+            if 'oai' in k: llm_sessions += [LLMSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'], proxy=cfg.get('proxy'))]
+            if 'xai' in k: llm_sessions += [XaiSession(cfg, mykeys.get('proxy', ''))]
+            if 'sider' in k: llm_sessions += [SiderLLMSession(cfg, default_model=x) for x in \
                                     ["gemini-3.0-flash", "claude-haiku-4.5", "kimi-k2"]]
-        if xai_api_key: llm_sessions += [XaiSession(xai_api_key, proxy)]
-        for cfg in oai_configs.values():
-            llm_sessions += [LLMSession(api_key=cfg['apikey'], api_base=cfg['apibase'], model=cfg['model'], proxy=cfg.get('proxy'))]
         if len(llm_sessions) > 0: self.llmclient = ToolClient(llm_sessions, auto_save_tokens=True)
         else: self.llmclient = None
         self.lock = threading.Lock()
