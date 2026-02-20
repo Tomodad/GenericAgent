@@ -67,3 +67,6 @@ memory/*
 # Visual Studio
 .vs/
 restore_commit.txt
+
+# 计划任务调度目录
+sche_tasks/

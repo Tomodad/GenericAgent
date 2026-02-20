@@ -96,7 +96,7 @@ class LLMSession:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
         payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
         try:
-            with requests.post(f"{self.api_base}/chat/completions", headers=headers, 
+            with requests.post(f"{self.api_base}/v1/chat/completions", headers=headers, 
                                json=payload, stream=True, timeout=(5, 60), proxies=self.proxies) as r:
                 r.raise_for_status()
                 buffer = ''

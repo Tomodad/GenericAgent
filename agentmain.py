@@ -51,7 +51,7 @@ class GeneraticAgent:
     def next_llm(self, n=-1):
         self.llm_no = ((self.llm_no + 1) if n < 0 else n) % len(self.llmclient.backends)
         self.llmclient.last_tools = ''
-    def list_llms(self): return [(i, b.default_model, i == self.llm_no) for i, b in enumerate(self.llmclient.backends)]
+    def list_llms(self): return [(i, f"{type(b).__name__}/{b.default_model}", i == self.llm_no) for i, b in enumerate(self.llmclient.backends)]
     def get_llm_name(self):
         b = self.llmclient.backends[self.llm_no]
         return f"{type(b).__name__}/{b.default_model}"

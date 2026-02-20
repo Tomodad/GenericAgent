@@ -1,7 +1,7 @@
 
 oai_config = {
     'apikey':'sk-uklURcj',
-    'apibase':"http://113.145.139.147:3001/v1",
+    'apibase':"http://113.145.139.147:3001",
     'model':"openai/gpt-5.1"
 }
 
@@ -12,14 +12,14 @@ sider_cookie = 'token=Bearer%20eyJhbGciOiJIUz...'
 # feel free to add more ~
 oai_config2 = {
     'apikey':'sk-uklURcj...',
-    'apibase':"http://133.145.139.147:3001/v1",
+    'apibase':"http://133.145.139.147:3001",
     'model':"claude-opus-4-6-20260206"
 }
 
 
 claude_config = {
     'apikey':'klURcj...',
-    'apibase':"http://233.145.139.147:3001/",
+    'apibase':"http://233.145.139.147:3001",
     'model':"claude-opus"
 }
 
