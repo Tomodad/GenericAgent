@@ -152,9 +152,9 @@ if __name__ == '__main__':
     else:
         agent.inc_out = True
         while True:
+            q = input('> ').strip()
+            if not q: continue
             try:
-                q = input('> ').strip()
-                if not q: continue
                 dq = agent.put_task(q, source='user')
                 while True:
                     item = dq.get()
