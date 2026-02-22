@@ -15,7 +15,9 @@ function createEnhancedDOMCopy() {
       return null;  
     }  
     if (sourceNode.nodeType === 3) return sourceNode.cloneNode(false);  
-    const clone = sourceNode.cloneNode(false);  
+    const clone = sourceNode.cloneNode(false);
+    if ((sourceNode.tagName === 'INPUT' || sourceNode.tagName === 'TEXTAREA') && sourceNode.value) clone.setAttribute('value', sourceNode.value);
+    else if (sourceNode.tagName === 'SELECT' && sourceNode.value) clone.setAttribute('data-selected', sourceNode.value);  
 
     const isDropdown = sourceNode.classList?.contains('dropdown-menu') ||   
              /dropdown|menu/i.test(sourceNode.className) || sourceNode.getAttribute('role') === 'menu'; 
@@ -744,32 +746,24 @@ js_cleanDOM = '''function cleanDOM(element) {
 def optimize_html_for_tokens(html):  
     if type(html) is str: soup = BeautifulSoup(html, 'html.parser')  
     else: soup = html
-    # 1. 删除所有style属性  
     [tag.attrs.pop('style', None) for tag in soup.find_all(True)]  
-    
-    # 2. 极简处理src和href (不保留原始映射)  
     for tag in soup.find_all(True):  
-        # 2.1 处理src属性 - 常见于img, script等标签  
         if tag.has_attr('src'):  
-            # Base64图片直接替换为超短占位符  
-            if tag['src'].startswith('data:'):  
-                tag['src'] = '__img__'  
-            # 长URL替换为短占位符  
-            elif len(tag['src']) > 30:  
-                tag['src'] = '__url__'  
-        
-        # 2.2 处理href属性 - 常见于a标签  
-        if tag.has_attr('href') and len(tag['href']) > 30:  
-            tag['href'] = '__link__'  
-        
-        # 2.3 删除其他不必要的长属性值  
+            if tag['src'].startswith('data:'): tag['src'] = '__img__'  
+            elif len(tag['src']) > 30: tag['src'] = '__url__'  
+        if tag.has_attr('href') and len(tag['href']) > 30: tag['href'] = '__link__'  
+        if tag.has_attr('action') and len(tag['action']) > 30: tag['action'] = '__url__'
+        for a in ('value', 'title', 'alt'):
+            if tag.has_attr(a) and isinstance(tag[a], str) and len(tag[a]) > 100: tag[a] = tag[a][:50] + ' ...'
         for attr in list(tag.attrs.keys()):  
-            if attr not in ['id', 'class', 'name', 'src', 'href', 'alt']:  
-                # 保留data-*属性名但简化其值  
-                if attr.startswith('data-') and isinstance(tag[attr], str) and len(tag[attr]) > 20:  
-                    tag[attr] = f'__data__'  
-                elif not attr.startswith('data-'):  
-                    tag.attrs.pop(attr, None)  
+            if attr not in ['id', 'class', 'name', 'src', 'href', 'alt', 'value', 'type', 'placeholder',
+                          'disabled', 'checked', 'selected', 'readonly', 'required', 'multiple',
+                          'role', 'aria-label', 'aria-expanded', 'aria-hidden', 'contenteditable',
+                          'title', 'for', 'action', 'method', 'target', 'colspan', 'rowspan']:  
+                if attr.startswith('data-v'): tag.attrs.pop(attr, None)
+                elif attr.startswith('data-') and isinstance(tag[attr], str) and len(tag[attr]) > 20:  
+                    tag[attr] = '__data__'  
+                elif not attr.startswith('data-'): tag.attrs.pop(attr, None)  
     return soup
 
 
@@ -868,7 +862,7 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
         keep = hit[:6] if hit else items[:3]
         for it in items:
             if it not in keep: it.decompose()
-        ss = str(optimize_html_for_tokens(s))
+        ss = '[SYSTEM] Found item list, only show some items ...\n' + str(optimize_html_for_tokens(s))
     else: ss = html
     if len(ss) > maxchars: ss = ss[:maxchars] + ' ... [TRUNCATED]'
     return ss
@@ -877,7 +871,7 @@ def execute_js_rich(script, driver):
     try: start_temp_monitor(driver)
     except: pass
     curr_session = driver.default_session_id
-    try: last_html = get_html(driver)
+    try: last_html = get_html(driver, cutlist=False)
     except: last_html = None
     result = None;  error_msg = None
     new_tab = False;  reloaded = False
@@ -908,7 +902,7 @@ def execute_js_rich(script, driver):
         except: rr['transients'] = []
     if not reloaded and not new_tab:
         try:
-            current_html = get_html(driver)
+            current_html = get_html(driver, cutlist=False)
             if last_html is None: raise Exception("no baseline")
             diff_data = find_changed_elements(last_html, current_html)
             change_count = diff_data.get('changed', 0)

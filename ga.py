@@ -148,7 +148,7 @@ def format_error(e):
         return f"{exc_type.__name__}: {str(e)} @ {fname}:{f.lineno}, {f.name} -> `{f.line}`"
     return f"{exc_type.__name__}: {str(e)}"
 
-def web_execute_js(script: str):
+def web_execute_js(script, switch_tab_id=None):
     """
     执行 JS 脚本来控制浏览器，并捕获结果和页面变化。
     script: 要执行的 JavaScript 代码字符串。
@@ -170,6 +170,7 @@ def web_execute_js(script: str):
         if driver is None: first_init_driver()
         if len(driver.get_all_sessions()) == 0:
             return {"status": "error", "msg": "没有可用的浏览器标签页，请先打开一个浏览器标签页，且确认TMWebDriver浏览器tempermonkey插件已安装并启用。"}
+        if switch_tab_id: driver.default_session_id = switch_tab_id
         result = execute_js_rich(script, driver)
         return result
     except Exception as e:
@@ -301,7 +302,8 @@ class GenericAgentHandler(BaseHandler):
         script = args.get("script", "")
         if not script: return StepOutcome(None, next_prompt="[Error] Empty script param. Check your tool call arguments.")
         save_to_file = args.get("save_to_file", "")
-        result = web_execute_js(script)
+        switch_tab_id = args.get("switch_tab_id")
+        result = web_execute_js(script, switch_tab_id=switch_tab_id)
         if save_to_file and "js_return" in result:
             content = str(result["js_return"] or '')
             abs_path = self._get_abs_path(save_to_file)
