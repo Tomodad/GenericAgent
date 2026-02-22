@@ -8,6 +8,20 @@ A minimalist autonomous agent framework that gives any LLM physical-level contro
 
 No Electron. No Docker. No Mac Mini. No 500K-line codebase. No paid installation service.
 
+## See It in Action
+
+<p align="center">
+  <img src="assets/demo/order_tea.gif" alt="Agent ordering milk tea" width="600">
+  <br><em>"Order me a milk tea" — the agent navigates a delivery app, picks items, and checks out, fully autonomously.</em>
+</p>
+
+<table>
+<tr>
+<td width="50%"><img src="assets/demo/autonomous_explore.png" width="100%"><br><em>Autonomous quantitative analysis — the agent explores data sources and generates reports on its own schedule.</em></td>
+<td width="50%"><img src="assets/demo/wechat_batch.png" width="100%"><br><em>WeChat batch messaging — yes, it can drive WeChat too.</em></td>
+</tr>
+</table>
+
 ## What Happens When You Use It
 
 ```
