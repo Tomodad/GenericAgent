@@ -39,7 +39,6 @@ class TMWebDriver:
         self.sessions, self.results, self.acks = {}, {}, {}
         self.default_session_id = None  
         self.latest_session_id = None  
-        self.last_cmd_time = 0
         self.is_remote = socket.socket().connect_ex((host, port+1)) == 0
         if not self.is_remote:  
             self.start_ws_server()  
@@ -94,12 +93,11 @@ class TMWebDriver:
                 session_id = data.get('sessionId')
                 code = data.get('code')
                 timeout = float(data.get('timeout', 10.0))
-                auto_switch_newtab = data.get('auto_switch_newtab', False)
+                detect_newtab = data.get('detect_newtab', False)
                 try:
-                    result = self.execute_js(code, timeout=timeout, session_id=session_id, auto_switch_newtab=auto_switch_newtab)
-                    print('[remote result]', str(result)[:500].replace('\n', ' '))
-                    newTabs = result.get('newTabs', []) if isinstance(result, dict) else []
-                    return json.dumps({'result': result, 'newTabs': newTabs}, ensure_ascii=False)
+                    result = self.execute_js(code, timeout=timeout, session_id=session_id, detect_newtab=detect_newtab)
+                    print('[remote result]', str(code)[:50] + ' RESULT:' +str(result)[:50].replace('\n', ' '))
+                    return json.dumps({'r': result}, ensure_ascii=False)
                 except Exception as e:
                     return json.dumps({'error': str(e)}, ensure_ascii=False)
             return 'ok'
@@ -161,12 +159,7 @@ class TMWebDriver:
             print(f"Tab reconnected: {session.url} (Session: {session_id})")  
 
         self.latest_session_id = session_id
-        if self.default_session_id is None: 
-            self.default_session_id = session_id  
-        elif is_new_session:  
-            if time.time() - self.last_cmd_time < 5.0:  
-                print(f"检测到脚本触发的新窗口，自动切换焦点: {session_id}")
-                self.default_session_id = session_id
+        if self.default_session_id is None: self.default_session_id = session_id 
 
     
     def _unregister_client(self, client: WebSocket) -> None:  
@@ -175,21 +168,15 @@ class TMWebDriver:
                 session.mark_disconnected()
                 break  
     
-    def execute_js(self, code, timeout=15, session_id=None, auto_switch_newtab=False) -> Any:  
+    def execute_js(self, code, timeout=15, session_id=None, detect_newtab=False) -> Any:  
         if session_id is None: session_id = self.default_session_id  
         if self.is_remote:
             print('remote_execute_js')
             response = self._remote_cmd({"cmd": "execute_js", "sessionId": session_id, 
                                          "code": code, "timeout": str(timeout), 
-                                         "auto_switch_newtab": auto_switch_newtab})
+                                         "detect_newtab": detect_newtab}).get('r', {})
             if response.get('error'): raise Exception(response['error'])
-            if auto_switch_newtab and 'newTabs' in response:
-                newtabs = response.get('newTabs', [])
-                if len(newtabs) > 0:
-                    new_session_id = newtabs[0]['sessionId']
-                    self.default_session_id = new_session_id
-                    print(f"自动切换到新标签会话: {new_session_id}")
-            return response.get('result', None)
+            return response
  
         session = self.sessions.get(session_id)
         if not session or not session.is_active(): 
@@ -207,12 +194,10 @@ class TMWebDriver:
         tp = session.type
         assert tp in ['ws', 'http'], f"Unsupported session type: {tp}"
         exec_id = str(uuid.uuid4())  
-        payload = json.dumps({'id': exec_id, 'code': code, 'auto_switch_newtab': auto_switch_newtab})
+        payload = json.dumps({'id': exec_id, 'code': code, 'detect_newtab': detect_newtab})
 
-        if tp == 'ws': 
-            session.ws_client.send_message(payload)  
-        elif tp == 'http':
-            session.http_queue.put(payload)
+        if tp == 'ws': session.ws_client.send_message(payload)  
+        elif tp == 'http': session.http_queue.put(payload)
 
         start_time = time.time()  
         self.clean_sessions() 
@@ -225,11 +210,10 @@ class TMWebDriver:
             if tp == 'ws':
                 if not session.is_active(): hasjump = True
                 if hasjump and session.is_active():
-                    if not self.is_remote and auto_switch_newtab: self.last_cmd_time = time.time()
-                    return {"result": f"Session {session_id} reloaded.", "closed":1}
+                    return {'result': f"Session {session_id} reloaded.", "closed":1}
             if time.time() - start_time > timeout:  
                 if tp == 'ws':
-                    if hasjump: return {"result": f"Session {session_id} reloaded and new page is loading...", "closed":1}
+                    if hasjump: return {'result': f"Session {session_id} reloaded and new page is loading...", 'closed':1}
                     if acked: return {"result": f"No response data in {timeout}s (ACK received, script may still be running)"}
                     return {"result": f"No response data in {timeout}s (no ACK, script may not have been delivered)"}
                 elif tp == 'http':
@@ -239,15 +223,10 @@ class TMWebDriver:
         result = self.results.pop(exec_id)  
         if exec_id in self.acks: self.acks.pop(exec_id)
         if not result['success']: raise Exception(result['data'])  
-        if not self.is_remote and auto_switch_newtab:
-            newtabs = result.get('newTabs', [])
-            if len(newtabs) > 0:
-                new_session_id = newtabs[0]['sessionId']
-                self.default_session_id = new_session_id
-                print(f"自动切换到新标签会话: {new_session_id}")
-        elif not self.is_remote:
-            self.last_cmd_time = time.time()
-        return result['data']  
+        rr = {'data': result['data']}
+        newtabs = result.get('newTabs', []); [x.pop('ts', None) for x in newtabs]
+        if newtabs: rr['newTabs'] = newtabs
+        return rr
     
     def _remote_cmd(self, cmd):
         return requests.post(self.remote, headers={"Content-Type": "application/json"}, json=cmd).json()
@@ -259,7 +238,7 @@ class TMWebDriver:
                 if session.is_active()]  
 
     def get_session_dict(self):
-        return {session.id: session.url for session in self.sessions.values() if session.is_active()}
+        return {session['id']: session['url'] for session in self.get_all_sessions()}
         
     def find_session(self, url_pattern: str):
         if url_pattern == '': 
@@ -279,17 +258,14 @@ class TMWebDriver:
             matched = self.find_session(url_pattern)
         if not matched: return print(f"警告: 未找到URL包含 '{url_pattern}' 的会话")  
         if len(matched) > 1: print(f"警告: 找到多个URL包含 '{url_pattern}' 的会话，选择第一个")  
-        self.last_cmd_time = 0
         self.default_session_id, info = matched[0]
         print(f"成功设置默认会话: {self.default_session_id}: {info['url']}")  
         return self.default_session_id  
     
     def jump(self, url, timeout=10): self.execute_js(f"window.location.href='{url}'", timeout=timeout)
-    def page_source(self): return self.execute_js("document.documentElement.outerHTML")
-    def body(self): return self.execute_js("document.body.outerHTML")
     def newtab(self, url=None):
         if url is None: url = "http://www.baidu.com/robots.txt"
-        return self.execute_js(f'GM_openInTab("{url}");', auto_switch_newtab=True)
+        return self.execute_js(f'GM_openInTab("{url}");', detect_newtab=True)
     
 if __name__ == "__main__":
     driver = TMWebDriver(host='localhost', port=18765)

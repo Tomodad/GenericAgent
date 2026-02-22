@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ljq_web_driver
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.3
 // @description  Execute JS via ljq_web_driver
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // @author       You
@@ -38,8 +38,15 @@
     }
 
     let ws;
-    let sid = (window.name && window.name.startsWith('ljq_')) ? 
-          window.name : window.sessionStorage.getItem('ljq_driver_sid');
+    let sid;
+    if (window.opener && window.name && window.name.startsWith('ljq_')) {
+        sid = null;
+        console.log(log_prefix + `检测到opener，丢弃继承的window.name: ${window.name}`);
+        window.name = '';
+    } else {
+        sid = (window.name && window.name.startsWith('ljq_')) ? 
+              window.name : window.sessionStorage.getItem('ljq_driver_sid');
+    }
     if (!sid) {
         sid = `ljq_${Date.now().toString().slice(-2)}${Math.random().toString(36).slice(2, 4)}`;
         window.sessionStorage.setItem('ljq_driver_sid', sid);
@@ -369,8 +376,8 @@
                 ws.send(JSON.stringify({type: 'ack',id: data.id}));
                 let startTime = Date.now();
                 let newTabs = [];
-                let checkNewTab = data.auto_switch_newtab === true;
-                GM_setValue('new_tab_report', null);   
+                let checkNewTab = data.detect_newtab === true;
+                GM_setValue('new_tab_report', null);
                 const response = executeCode(data);
              
                 if (response.error) {

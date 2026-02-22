@@ -802,20 +802,17 @@ def get_temp_texts(driver):
         }  
         stopStrMonitor();  
     """  
-    try: return set(driver.execute_js(js))
+    try: return list(set(driver.execute_js(js).get('data', [])))
     except Exception as e: 
         print(e)
-        return set()  
+        return []
     
 import time
 def get_main_block(driver): 
-    html = driver.execute_js(js_optHTML)  
+    html = driver.execute_js(js_optHTML).get('data', '')
     if type(html) is not str:  
         time.sleep(2)
-        html = driver.execute_js(js_optHTML)  
-        if type(html) is not str:  
-            print('[STRANGE TYPE]', type(html), str(html)[:500])
-            return html
+        html = driver.execute_js(js_optHTML).get('data', '')
     return html
 
 
@@ -854,7 +851,7 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
     html = str(soup)
     if not cutlist or len(html) <= maxchars: return html
     rr = driver.execute_js(js_findMainList + js_findMainContent + """
-        return findMainList(findMainContent(document.body));""")
+        return findMainList(findMainContent(document.body));""").get('data', {})
     sel = rr.get("selector", None) if isinstance(rr, dict) else None
     if sel: 
         s = BeautifulSoup(str(soup), "html.parser"); items = s.select(sel)
@@ -870,37 +867,40 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
 def execute_js_rich(script, driver):
     try: start_temp_monitor(driver)
     except: pass
-    curr_session = driver.default_session_id
     try: last_html = get_html(driver, cutlist=False)
     except: last_html = None
-    result = None;  error_msg = None
-    new_tab = False;  reloaded = False
+    result = None;  error_msg = None;  newTabs = []; reloaded = False
+    before_sids = set(driver.get_session_dict().keys())
     try:
         print(f"Executing: {script[:250]} ...")
-        result = driver.execute_js(script, auto_switch_newtab=True)
-        if type(result) is dict and result.get('closed', 0) == 1: reloaded = True
+        response = driver.execute_js(script, detect_newtab=True)
+        result = response.get('data') or response.get('result')
+        newTabs = response.get('newTabs', [])
+        if response.get('closed', 0) == 1: reloaded = True
         time.sleep(2) 
     except Exception as e:
         error = e.args[0] if e.args else str(e)
         if isinstance(error, dict): error.pop('stack', None)
         error_msg = str(error)
         print(f"Error: {error_msg}")
-    if driver.default_session_id != curr_session:
-        print('Session changed')
-        new_tab = True
     rr = {
         "status": "failed" if error_msg else "success",
         "js_return": result,
-        "environment": {
-            "new_tab": new_tab,
-            "reloaded": reloaded
-        }
+        "environment": {"newTabs": newTabs, "reloaded": reloaded}
     }  
+    print(reloaded, newTabs)
+    if reloaded and len(newTabs) == 0:
+        after = driver.get_session_dict()
+        new_sids = {k: v for k, v in after.items() if k not in before_sids}
+        if new_sids:
+            newTabs = [{'id': k, 'url': v} for k, v in new_sids.items()]
+            rr['environment']['newTabs'] = newTabs
+            rr['suggestion'] = "页面已刷新，以上新标签页在执行期间连接。"
     if error_msg: rr['error'] = error_msg
     if not reloaded:
         try: rr['transients'] = get_temp_texts(driver)
         except: rr['transients'] = []
-    if not reloaded and not new_tab:
+    if not reloaded and len(newTabs) == 0:
         try:
             current_html = get_html(driver, cutlist=False)
             if last_html is None: raise Exception("no baseline")
@@ -910,11 +910,9 @@ def execute_js_rich(script, driver):
             diff_summary = f"DOM变化量: {change_count}"
             if top_change: diff_summary += f"\n最显著变化:\n{top_change}"
             transients = rr.get('transients', [])
-            if change_count == 0 and not transients and not new_tab:
+            if change_count == 0 and not transients and len(newTabs) == 0:
                 diff_summary += " (页面无变化)"
                 rr['suggestion'] = "页面无明显变化"
-            else:
-                rr['suggestion'] = ""
         except:
             diff_summary = "页面变化监控不可用"
         rr['diff'] = diff_summary

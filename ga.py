@@ -158,7 +158,7 @@ def web_execute_js(script, switch_tab_id=None):
         "error": error_msg,
         "transients": transients, 
         "environment": {
-            "new_tab": new_tab,
+            "newTabs": [],
             "reloaded": reloaded
         },
         "diff": diff_summary,
