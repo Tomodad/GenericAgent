@@ -305,7 +305,7 @@ class GenericAgentHandler(BaseHandler):
         if save_to_file and "js_return" in result:
             content = str(result["js_return"] or '')
             abs_path = self._get_abs_path(save_to_file)
-            result["js_return"] = smart_format(content, max_str_len=200)
+            result["js_return"] = smart_format(content, max_str_len=170)
             try:
                 with open(abs_path, 'w', encoding='utf-8') as f: f.write(str(content))
                 result["js_return"] += f"\n\n[已保存完整内容到 {abs_path}]"

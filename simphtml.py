@@ -825,47 +825,34 @@ def get_main_block(driver):
     return html
 
 
-def find_changed_elements(before_html, after_html):  
-    before_soup = BeautifulSoup(before_html, 'html.parser')  
-    after_soup = BeautifulSoup(after_html, 'html.parser')  
-    def get_element_signature(element):  
-        attrs = {k:v for k,v in element.attrs.items() if k != 'data-track-id'}  
-        children = len(list(element.find_all(recursive=False)))  
-        text = element.get_text(strip=True)  
-        return f"{element.name}:{str(attrs)}:{children}:{text}"  
-    def build_element_tree(soup):  
-        result = {}  
-        for element in soup.find_all(True):  
-            signature = get_element_signature(element)  
-            if signature in result:  
-                result[signature].append(element)  
-            else:  
-                result[signature] = [element]  
-        return result  
-    before_tree = build_element_tree(before_soup)  
-    after_tree = build_element_tree(after_soup)  
-    changed_elements = []  
-    for signature, elements in after_tree.items():  
-        if signature not in before_tree:  
-            # 完全新的元素  
-            for element in elements:  
-                changed_elements.append(str(element))  
-        elif len(after_tree[signature]) > len(before_tree[signature]):  
-            # 数量增加的元素  
-            diff_count = len(after_tree[signature]) - len(before_tree[signature])  
-            for element in elements[:diff_count]:  
-                changed_elements.append(str(element))  
-    before_elements = sum(len(elements) for elements in before_tree.values())  
-    after_elements = sum(len(elements) for elements in after_tree.values())  
-    common_elements = sum(min(len(before_tree.get(sig, [])), len(after_tree.get(sig, [])))   
-                         for sig in set(before_tree.keys()) | set(after_tree.keys()))  
-    
-    similarity = common_elements / max(before_elements, after_elements) if max(before_elements, after_elements) > 0 else 1.0  
-    return {  
-        "changed": len(changed_elements), 
-        "similarity": similarity
-        #"changed_elements": changed_elements[:3]
-    }  
+def find_changed_elements(before_html, after_html):
+    before_soup = BeautifulSoup(before_html, 'html.parser')
+    after_soup = BeautifulSoup(after_html, 'html.parser')
+    def direct_text(el):
+        return ''.join(t.strip() for t in el.find_all(string=True, recursive=False)).strip()
+    def get_sig(el):
+        attrs = {k:v for k,v in el.attrs.items() if k != 'data-track-id'}
+        return f"{el.name}:{attrs}:{direct_text(el)}"
+    def build_sigs(soup):
+        result = {}
+        for el in soup.find_all(True):
+            sig = get_sig(el)
+            result.setdefault(sig, []).append(el)
+        return result
+    before_sigs, after_sigs = build_sigs(before_soup), build_sigs(after_soup)
+    changed = []
+    for sig, els in after_sigs.items():
+        if sig not in before_sigs: changed.extend(els)
+        elif len(els) > len(before_sigs[sig]): changed.extend(els[:len(els) - len(before_sigs[sig])])
+    # 变化边界: parent不在changed中的元素
+    cids = set(id(el) for el in changed)
+    boundaries = [el for el in changed if el.parent is None or id(el.parent) not in cids]
+    top = max(boundaries, key=lambda el: len(str(el))) if boundaries else None
+    result = {"changed": len(changed)}
+    if top:
+        h = str(top)
+        result["top_change"] = h if len(h) <= 2000 else h[:2000] + '...[TRUNCATED]'
+    return result
 
 def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
     page = get_main_block(driver)
@@ -925,15 +912,16 @@ def execute_js_rich(script, driver):
             if last_html is None: raise Exception("no baseline")
             diff_data = find_changed_elements(last_html, current_html)
             change_count = diff_data.get('changed', 0)
+            top_change = diff_data.get('top_change', '')
             diff_summary = f"DOM变化量: {change_count}"
+            if top_change: diff_summary += f"\n最显著变化:\n{top_change}"
             transients = rr.get('transients', [])
-            if change_count < 5 and not transients and not new_tab:
-                diff_summary += " (页面几乎无静默变化)"
+            if change_count == 0 and not transients and not new_tab:
+                diff_summary += " (页面无变化)"
                 rr['suggestion'] = "页面无明显变化"
             else:
                 rr['suggestion'] = ""
         except:
             diff_summary = "页面变化监控不可用"
-            rr['suggestion'] = ""
         rr['diff'] = diff_summary
     return rr
