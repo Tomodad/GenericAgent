@@ -767,22 +767,22 @@ def optimize_html_for_tokens(html):
     return soup
 
 
+temp_monitor_js = """function startStrMonitor(interval) {  
+        if (window._tm && window._tm.id) clearInterval(window._tm.id);  
+        window._tm = {extract: () => {  
+            const texts = new Set(), walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);  
+            let node, t, s; while (node = walker.nextNode())   
+                ((t = node.textContent.trim()) && t.length > 10 && !(s = t.substring(0, 20)).includes('_')) && texts.add(s);  
+            return texts;  
+        }}; 
+        window._tm.init = window._tm.extract();  
+        window._tm.all = new Set();  
+        window._tm.id = setInterval(() => window._tm.extract().forEach(t => window._tm.all.add(t)), interval);  
+    }  
+    startStrMonitor(450);  
+"""  
 def start_temp_monitor(driver):  
-    js = """function startStrMonitor(interval) {  
-            if (window._tm && window._tm.id) clearInterval(window._tm.id);  
-            window._tm = {extract: () => {  
-                const texts = new Set(), walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);  
-                let node, t, s; while (node = walker.nextNode())   
-                    ((t = node.textContent.trim()) && t.length > 10 && !(s = t.substring(0, 20)).includes('_')) && texts.add(s);  
-                return texts;  
-            }}; 
-            window._tm.init = window._tm.extract();  
-            window._tm.all = new Set();  
-            window._tm.id = setInterval(() => window._tm.extract().forEach(t => window._tm.all.add(t)), interval);  
-        }  
-        startStrMonitor(450);  
-    """  
-    try: driver.execute_js(js)
+    try: driver.execute_js(temp_monitor_js)
     except: pass
 
 def get_temp_texts(driver):  
@@ -808,13 +808,8 @@ def get_temp_texts(driver):
         return []
     
 import time
-def get_main_block(driver): 
-    html = driver.execute_js(js_optHTML).get('data', '')
-    if type(html) is not str:  
-        time.sleep(2)
-        html = driver.execute_js(js_optHTML).get('data', '')
-    return html
-
+def get_main_block(driver, extra_js=""): 
+    return driver.execute_js(extra_js+'\n'+js_optHTML).get('data', '')
 
 def find_changed_elements(before_html, after_html):
     before_soup = BeautifulSoup(before_html, 'html.parser')
@@ -845,8 +840,8 @@ def find_changed_elements(before_html, after_html):
         result["top_change"] = h if len(h) <= 2000 else h[:2000] + '...[TRUNCATED]'
     return result
 
-def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
-    page = get_main_block(driver)
+def get_html(driver, cutlist=False, maxchars=28000, instruction="", extra_js=""):
+    page = get_main_block(driver, extra_js=extra_js)
     soup = optimize_html_for_tokens(page)
     html = str(soup)
     if not cutlist or len(html) <= maxchars: return html
@@ -865,9 +860,7 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction=""):
     return ss
 
 def execute_js_rich(script, driver):
-    try: start_temp_monitor(driver)
-    except: pass
-    try: last_html = get_html(driver, cutlist=False)
+    try: last_html = get_html(driver, cutlist=False, extra_js=temp_monitor_js)
     except: last_html = None
     result = None;  error_msg = None;  newTabs = []; reloaded = False
     before_sids = set(driver.get_session_dict().keys())
