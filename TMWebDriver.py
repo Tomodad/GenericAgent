@@ -96,7 +96,7 @@ class TMWebDriver:
                 detect_newtab = data.get('detect_newtab', False)
                 try:
                     result = self.execute_js(code, timeout=timeout, session_id=session_id, detect_newtab=detect_newtab)
-                    print('[remote result]', str(code)[:50] + ' RESULT:' +str(result)[:50].replace('\n', ' '))
+                    print('[remote result]', (str(code)[:50] + ' RESULT:' +str(result)[:50]).replace('\n', ' '))
                     return json.dumps({'r': result}, ensure_ascii=False)
                 except Exception as e:
                     return json.dumps({'error': str(e)}, ensure_ascii=False)
