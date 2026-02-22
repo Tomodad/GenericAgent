@@ -10,15 +10,18 @@ No Electron. No Docker. No Mac Mini. No 500K-line codebase. No paid installation
 
 ## See It in Action
 
-<p align="center">
-  <img src="assets/demo/order_tea.gif" alt="Agent ordering milk tea" width="600">
-  <br><em>"Order me a milk tea" — the agent navigates a delivery app, picks items, and checks out, fully autonomously.</em>
-</p>
+<table>
+<tr>
+<td width="45%" align="center"><img src="assets/demo/order_tea.gif" width="100%"><br><em>"Order me a milk tea" — navigates a delivery app, picks items, and checks out.</em></td>
+<td width="55%" align="center"><img src="assets/demo/selectstock.gif" width="100%"><br><em>"Find GEM stocks with EXPMA golden cross, turnover > 5%" — quantitative screening via mootdx.</em></td>
+</tr>
+</table>
 
 <table>
 <tr>
-<td width="60%"><img src="assets/demo/autonomous_explore.png" width="100%"><br><em>Autonomous quantitative analysis — the agent explores data sources and generates reports on its own schedule.</em></td>
-<td width="40%"><img src="assets/demo/wechat_batch.png" width="100%"><br><em>WeChat batch messaging — yes, it can drive WeChat too.</em></td>
+<td width="33%"><img src="assets/demo/autonomous_explore.png" width="100%"><br><em>Autonomous web exploration — browses and summarizes on its own schedule.</em></td>
+<td width="34%"><img src="assets/demo/alipay_expense.png" width="100%"><br><em>"Find expenses over ¥2K in the past 3 months" — drives Alipay on a phone via ADB.</em></td>
+<td width="33%"><img src="assets/demo/wechat_batch.png" width="100%"><br><em>WeChat batch messaging — yes, it can drive WeChat too.</em></td>
 </tr>
 </table>
 
