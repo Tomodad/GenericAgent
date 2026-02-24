@@ -9,6 +9,8 @@
 - 共享资源冲突：键鼠/浏览器主体不可共享（浏览器可分tab但需谨慎），subagent任务应限于文件处理
 - 不满足map模式的任务 → 主agent顺序执行即可，别用subagent
 
+**额外场景：SOP dry-run验证**——启动单个subagent执行目标SOP，通过output日志发现SOP缺陷（缺参数/选择器不准/步骤模糊），主agent据此patch优化SOP。单subagent不存在资源冲突。
+
 **标准流程（map-reduce）**：
 1. 主agent准备阶段：爬取/dump数据，存为多个独立输入文件
 2. 分发：对每个文件启动一个subagent处理（主agent自己也可以处理其中一个）

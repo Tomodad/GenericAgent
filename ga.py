@@ -194,13 +194,9 @@ def file_patch(path: str, old_content: str, new_content: str):
         return {"status": "error", "msg": str(e)}
 
 def file_read(path, start=1, keyword=None, count=200, show_linenos=True):
-    L_MAX = max(100, 1024000//count); TAG = " ... [TRUNCATED]"
     try:
         with open(path, 'r', encoding='utf-8', errors='replace') as f:
-            stream = (
-                (i, (l[:L_MAX].rstrip() + TAG if len(l) > L_MAX else l.rstrip('\r\n')))
-                for i, l in enumerate(f, 1)
-            )
+            stream = ((i, l.rstrip('\r\n')) for i, l in enumerate(f, 1))
             stream = itertools.dropwhile(lambda x: x[0] < start, stream)
             if keyword:
                 before = collections.deque(maxlen=count//3)
@@ -211,8 +207,15 @@ def file_read(path, start=1, keyword=None, count=200, show_linenos=True):
                     before.append((i, l))
                 else: return f"Keyword '{keyword}' not found after line {start}. Falling back to content from line {start}:\n\n" \
                                + file_read(path, start, None, count, show_linenos)
-            else: res = itertools.islice(stream, count)
-            return "\n".join(f"{i}|{l}" if show_linenos else l for i, l in res)
+            else: res = list(itertools.islice(stream, count))
+            realcnt = len(res); L_MAX = max(100, 512000//realcnt); TAG = " ... [TRUNCATED]"
+            remaining = sum(1 for _ in itertools.islice(stream, 5000))
+            total_lines = (start - 1) + realcnt + remaining
+            total_tag = "[FILE] Total " + (f"{total_lines}+" if remaining >= 5000 else str(total_lines)) + ' lines\n'
+            res = [(i, l if len(l) <= L_MAX else l[:L_MAX] + TAG) for i, l in res]
+            result = "\n".join(f"{i}|{l}" if show_linenos else l for i, l in res)
+            if show_linenos: result = total_tag + result
+            return result
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -370,7 +373,7 @@ class GenericAgentHandler(BaseHandler):
         path = self._get_abs_path(args.get("path", ""))
         yield f"\n[Action] Reading file: {path}\n"
         start = args.get("start", 1)
-        count = args.get("count", 100)
+        count = args.get("count", 200)
         keyword = args.get("keyword")
         show_linenos = args.get("show_linenos", True)
         result = file_read(path, start=start, keyword=keyword,

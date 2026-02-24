@@ -55,7 +55,7 @@ class ClaudeSession:
         headers = {"x-api-key": self.api_key, "Content-Type": "application/json", "anthropic-version": "2023-06-01"}
         payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": True}
         try:
-            with requests.post(f"{self.api_base}/v1/messages", headers=headers, json=payload, stream=True, timeout=(5,60)) as r:
+            with requests.post(f"{self.api_base}/v1/messages", headers=headers, json=payload, stream=True, timeout=(5,30)) as r:
                 r.raise_for_status()
                 for line in r.iter_lines():
                     if not line: continue
