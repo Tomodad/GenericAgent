@@ -320,8 +320,7 @@ class ToolClient:
         return prompt
 
     def _parse_mixed_response(self, text):
-        remaining_text = text
-        thinking = ''
+        remaining_text = text; thinking = ''
         think_pattern = r"<thinking>(.*?)</thinking>"
         think_match = re.search(think_pattern, text, re.DOTALL)
         
@@ -329,42 +328,47 @@ class ToolClient:
             thinking = think_match.group(1).strip()
             remaining_text = re.sub(think_pattern, "", remaining_text, flags=re.DOTALL)
         
-        tool_calls = None
-        tool_pattern = r"<tool_use>(.*?)</tool_use>"
+        tool_calls = []; json_strs = []; errors = []
+        tool_pattern = r"<tool_use>(.{15,}?)</tool_use>"
         tool_all = re.findall(tool_pattern, remaining_text, re.DOTALL)
         
-        json_str = ""
         if tool_all:
-            json_str = tool_all[-1].strip()
+            tool_all = [s.strip() for s in tool_all]
+            json_strs.extend([s for s in tool_all if s.startswith('{') and s.endswith('}')])
             remaining_text = re.sub(tool_pattern, "", remaining_text, flags=re.DOTALL)
         elif '<tool_use>' in remaining_text:
             weaktoolstr = remaining_text.split('<tool_use>')[-1].strip()
             json_str = weaktoolstr if weaktoolstr.endswith('}') else ''
             if json_str == '' and '```' in weaktoolstr and weaktoolstr.split('```')[0].strip().endswith('}'):
                 json_str = weaktoolstr.split('```')[0].strip()
+            if json_str:
+                json_strs.append(json_str)
             remaining_text = remaining_text.replace('<tool_use>'+weaktoolstr, "")
         elif '"name":' in remaining_text and '"arguments":' in remaining_text:
             json_match = re.search(r"(\{.*\"name\":.*?\})", remaining_text, re.DOTALL | re.MULTILINE)
             if json_match:
                 json_str = json_match.group(1).strip()
+                json_strs.append(json_str)
                 remaining_text = remaining_text.replace(json_str, "").strip()
-        if json_str:
+
+        for json_str in json_strs:
             try:
                 data = tryparse(json_str)
                 func_name = data.get('name') or data.get('function') or data.get('tool')
                 args = data.get('arguments') or data.get('args') or data.get('params') or data.get('parameters')
                 if args is None: args = data
-                if func_name: tool_calls = [MockToolCall(func_name, args)]
+                if func_name: tool_calls.append(MockToolCall(func_name, args))
             except json.JSONDecodeError as e:
-                print("[Warn] Failed to parse tool_use JSON:", json_str)
-                tool_calls = [MockToolCall('bad_json', {'msg': f'Failed to parse tool_use JSON: {json_str[:200]}'})]
+                errors.append({'err': f"[Warn] Failed to parse tool_use JSON: {json_str}", 'bad_json': f'Failed to parse tool_use JSON: {json_str[:200]}'})
                 self.last_tools = ''   # llm肯定忘了tool schema了，再提供下
             except Exception as e:
-                print("[Error] Exception during tool_use parsing:", str(e), data)
-
+                errors.append({'err': f'[Warn] Exception during tool_use parsing: {str(e)} {str(data)}'})
+        if len(tool_calls) == 0:
+            for e in errors:
+                print(e['err'])
+                if 'bad_json' in e: tool_calls.append(MockToolCall('bad_json', {'msg': e['bad_json']}))
         content = remaining_text.strip()
-        if not content: content = ""
-        return MockResponse(thinking, content, tool_calls, text)
+        return MockResponse(thinking, content, tool_calls[-1:], text)
 
 def tryparse(json_str):
     try: return json.loads(json_str)

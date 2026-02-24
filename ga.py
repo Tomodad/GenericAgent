@@ -183,7 +183,7 @@ def file_patch(path: str, old_content: str, new_content: str):
     try:
         if not os.path.exists(path): return {"status": "error", "msg": "文件不存在"}
         with open(path, 'r', encoding='utf-8') as f: full_text = f.read()
-        # 检查唯一性
+        if not old_content: return {"status": "error", "msg": "old_content 为空，请确认 arguments 参数"}
         count = full_text.count(old_content)
         if count == 0: return {"status": "error", "msg": "未找到匹配的旧文本块，建议：先用 file_read 确认当前内容，再分小段进行 patch。若多次失败则询问用户，严禁自行使用 overwrite 或代码替换。"}
         if count > 1: return {"status": "error", "msg": f"找到 {count} 处匹配，无法确定唯一位置。请提供更长、更具体的旧文本块以确保唯一性。建议：包含上下文行来增强特征，或分小段逐个修改。"}
@@ -385,7 +385,7 @@ class GenericAgentHandler(BaseHandler):
             result += '\n\n（某些行被截断，如需完整内容可改用 code_run 读取）'
         next_prompt = self._get_anchor_prompt()
         if 'memory' in path or 'sop' in path: 
-            next_prompt += "\nPROTOCOL: 你正在读取记忆或SOP文件，若决定按sop执行请先调用相关工具提取sop中的关键点（特别是靠后的）进入工作记忆。"
+            next_prompt += "\n[SYSTEM TIPS] 正在读取记忆或SOP文件，若决定按sop执行请提取sop中的关键点（特别是靠后的）update working memory."
         return StepOutcome(result, next_prompt=next_prompt)
     
     def do_update_working_mem(self, args, response):
@@ -407,7 +407,6 @@ class GenericAgentHandler(BaseHandler):
         二次确认仅在回复几乎只包含<thinking>/<summary>和一段大代码块时触发。
         '''
         content = getattr(response, 'content', '') or ""
-
         # 1. 空回复保护：要求模型重新生成内容或调用工具
         if not response or not content.strip():
             yield "[Warn] LLM returned an empty response. Retrying...\n"
