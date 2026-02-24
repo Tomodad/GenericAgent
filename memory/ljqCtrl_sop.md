@@ -1,5 +1,7 @@
 # ljqCtrl 使用与坐标转换 SOP
 
+> **must call update_working_memory**：`ljqCtrl一律使用物理坐标｜禁pyautogui｜操作前先gw激活窗口`
+
 ## 0. API 快速参考 (Signatures)
 - `ljqCtrl.dpi_scale`: float (缩放系数 = 逻辑宽度 / 物理宽度)
 - `ljqCtrl.SetCursorPos(z)`: 移动鼠标到逻辑坐标 z=(x, y)
@@ -35,6 +37,7 @@ ljqCtrl.Click(px, py)
 ```
 
 ## 4. 避坑指南
+- **⚠️ 一律使用物理坐标**：传给 ljqCtrl.Click/SetCursorPos 的坐标必须是物理坐标（=截图像素坐标）。从 pygetwindow 获取的逻辑坐标需先 `/ dpi_scale` 转换。禁止传入逻辑坐标。
 - **物理验证**：模拟操作前必须确保窗口已通过 `activate()` 置于前台。
 - **偏移量**：所有的相对偏移像素值（如“向右移动 10 像素”）同样需要除以 `dpi_scale`。
 - **坐标对齐**: 物理坐标 = 截图坐标；ljqCtrl 自动处理 DPI 换算，禁止手动重复计算。

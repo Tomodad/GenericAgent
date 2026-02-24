@@ -32,19 +32,47 @@ python ../memory/mem_scanner.py <PID> "pattern" --llm
 - **权限**: 并非强制要求管理员权限，但需具备对目标进程的 `PROCESS_QUERY_INFORMATION` 和 `PROCESS_VM_READ` 权限。
 - **效率**: 搜索大块内存时，尽量提供更唯一的特征码以减少误报。
 
-## 4. 典型场景：CE式差集扫描定位动态字段（已验证）
-用于定位微信等自绘UI中「当前会话标题」等随操作变化的内存字段。
+## 4. CE式差集扫描定位动态字段
+定位微信等自绘UI中随操作变化的内存字段（如当前会话标题）。核心：一次全量scan + 多次ReadProcessMemory筛选。
 
-**方法（类似Cheat Engine找游戏数值）：**
-1. 找到主窗口PID（Weixin.exe有多个进程，用win32gui.GetWindowThreadProcessId取有窗口的那个）
-2. 切到会话A → `scan_memory(pid, "人名A", mode="string")` → 得地址集S_A
-3. 切到会话B → `scan_memory(pid, "人名B", mode="string")` → 得地址集S_B
-4. 差集：S_A独有地址（A时有、B时无）= 候选地址
-5. 切回A → 用ReadProcessMemory逐个读候选地址，确认内容变回"人名A"的即为目标
-6. 再切第3、4个人交叉验证
+**流程（3个联系人A/B/C即可收敛）：**
+1. 取PID：Weixin.exe有多进程，用`win32gui.GetWindowThreadProcessId`取有窗口的
+2. 当前会话=A → `scan_memory(pid, "人名A", mode="string")` → 地址集S
+3. 切到B → 读S全部地址 → 保留内容≠"人名A"的 → 候选C
+4. 切到A → 读C全部地址 → 保留内容=="人名A"的 → 候选C'（通常1-3个）
+5. 若C'>1 → 再切B/C重复 → 直到唯一
+
+**切换会话+读地址 完整代码：**
+```python
+import sys; sys.path.append('../memory')
+import ljqCtrl, pygetwindow as gw, pyperclip, time, ctypes
+
+def switch_chat(name):
+    win = gw.getWindowsWithTitle('微信')[0]
+    if win.isMinimized: win.restore()
+    win.activate(); time.sleep(0.3)
+    S = 1 / ljqCtrl.dpi_scale
+    ljqCtrl.Click(int((win.left+150)*S), int((win.top+40)*S)); time.sleep(0.5)
+    pyperclip.copy(name); ljqCtrl.Press('ctrl+v'); time.sleep(1.5)
+    ljqCtrl.Click(int((win.left+150)*S), int((win.top+130)*S)); time.sleep(0.8)
+
+def read_addrs(pid, addrs):
+    k32 = ctypes.windll.kernel32
+    hp = k32.OpenProcess(0x10, False, pid)
+    buf = ctypes.create_string_buffer(256)
+    rd = ctypes.c_size_t()
+    result = {}
+    for a in addrs:
+        a = int(a, 16) if isinstance(a, str) else a
+        k32.ReadProcessMemory(hp, ctypes.c_void_p(a), buf, 256, ctypes.byref(rd))
+        result[a] = buf.raw.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
+    k32.CloseHandle(hp)
+    return result  # {addr: text}
+```
 
 **坑点：**
-- 搜索切换会污染结果（搜索框缓存也含人名），最终验证应用列表点击而非搜索
-- 地址是绝对虚拟地址，进程重启后失效，需重新校准（约10秒）
-- ReadProcessMemory读UTF-8，用`raw.split(b'\x00')[0].decode('utf-8')`提取干净文本
-- 微信主进程名为Weixin.exe（非WeChat.exe）
+- 进程名Weixin.exe（非WeChat.exe）；地址字符串先`int(addr,16)`
+- 步骤3筛≠A（排除空/乱码），步骤4筛==A（正向确认），交替最快
+- 搜索框粘贴后≥1.5s再点结果；"文件传输助手"等常见词首条可能是广告，建议用不常见的联系人名做差集（如真实好友昵称），或搜索后点第2条结果
+- 切换后用read_addrs验证确实切成功了再继续
+- 最终候选>1时的消歧：不要用搜索切换，直接在联系人列表中点一个靠后的人（不经过搜索框），然后read_addrs看哪个地址变了——变的才是标题栏，没变的是搜索框残留
