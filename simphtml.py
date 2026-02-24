@@ -879,9 +879,9 @@ def execute_js_rich(script, driver):
     rr = {
         "status": "failed" if error_msg else "success",
         "js_return": result,
-        "environment": {"newTabs": newTabs, "reloaded": reloaded}
+        "environment": {"newTabs": newTabs, "reloaded": reloaded},
+        "tab_id": driver.default_session_id
     }  
-    print(reloaded, newTabs)
     if reloaded and len(newTabs) == 0:
         after = driver.get_session_dict()
         new_sids = {k: v for k, v in after.items() if k not in before_sids}

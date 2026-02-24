@@ -162,7 +162,7 @@ def web_execute_js(script, switch_tab_id=None):
             "reloaded": reloaded
         },
         "diff": diff_summary,
-        "suggestion": "" if is_significant_change else "页面无明显变化"
+        "suggestion": suggestion
     }
     """
     global driver
@@ -183,7 +183,7 @@ def file_patch(path: str, old_content: str, new_content: str):
     try:
         if not os.path.exists(path): return {"status": "error", "msg": "文件不存在"}
         with open(path, 'r', encoding='utf-8') as f: full_text = f.read()
-        if not old_content: return {"status": "error", "msg": "old_content 为空，请确认 arguments 参数"}
+        if not old_content: return {"status": "error", "msg": "old_content 为空，请确认 arguments"}
         count = full_text.count(old_content)
         if count == 0: return {"status": "error", "msg": "未找到匹配的旧文本块，建议：先用 file_read 确认当前内容，再分小段进行 patch。若多次失败则询问用户，严禁自行使用 overwrite 或代码替换。"}
         if count > 1: return {"status": "error", "msg": f"找到 {count} 处匹配，无法确定唯一位置。请提供更长、更具体的旧文本块以确保唯一性。建议：包含上下文行来增强特征，或分小段逐个修改。"}
@@ -294,8 +294,7 @@ class GenericAgentHandler(BaseHandler):
         content = result.pop("content", None)
         yield f'[Info] {str(result)}\n'
         if content: next_prompt = f"<tool_result>\n```html\n{content}\n```\n</tool_result>"
-        else: next_prompt = "标签页列表如上\n"
-        # 手动tool_result为了触发历史上下文自动压缩
+        else: next_prompt = "标签页列表如上\n"  # 手动tool_result为了触发历史上下文自动压缩
         return StepOutcome(result, next_prompt=next_prompt)
     
     def do_web_execute_js(self, args, response):
@@ -388,7 +387,7 @@ class GenericAgentHandler(BaseHandler):
             next_prompt += "\n[SYSTEM TIPS] 正在读取记忆或SOP文件，若决定按sop执行请提取sop中的关键点（特别是靠后的）update working memory."
         return StepOutcome(result, next_prompt=next_prompt)
     
-    def do_update_working_mem(self, args, response):
+    def do_update_working_checkpoint(self, args, response):
         '''为整个任务设定后续需要临时记忆的重点。
         '''
         key_info = args.get("key_info", "")
@@ -399,6 +398,7 @@ class GenericAgentHandler(BaseHandler):
         yield f"key_info:\n{self.key_info}\n\n"
         yield f"related_sop:\n{self.related_sop}\n\n"
         next_prompt = self._get_anchor_prompt()
+        next_prompt += '\n[SYSTEM TIPS] 此函数一般在任务开始或中间时调用，如果任务已成功完成应该是start_long_term_update用于结算长期记忆。\n'
         return StepOutcome({"status": "success"}, next_prompt=next_prompt)
 
     def do_no_tool(self, args, response):
@@ -440,7 +440,7 @@ class GenericAgentHandler(BaseHandler):
         yield "[Info] Final response to user.\n"
         return StepOutcome(response, next_prompt=None, should_exit=True)
     
-    def do_trigger_memory_update(self, args, response):
+    def do_start_long_term_update(self, args, response):
         '''Agent觉得当前任务完成后有重要信息需要记忆时调用此工具。
         '''
         prompt = '''### [总结提炼经验] 既然你觉得当前任务有重要信息需要记忆，请提取最近一次任务中【事实验证成功且长期有效】的环境事实、用户偏好、重要步骤，更新记忆。
