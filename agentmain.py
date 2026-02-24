@@ -145,7 +145,9 @@ if __name__ == '__main__':
             while 'done' not in (item := dq.get()): pass
             open('./temp/scheduler.log', 'a', encoding='utf-8').write(f'[{datetime.now():%m-%d %H:%M}] {tag}\n{item["done"]}\n\n')
         while True:
+            time.sleep(55 + random.random() * 10)
             now = datetime.now()
+            if not os.path.isdir('./sche_tasks/pending'): continue
             for f in os.listdir('./sche_tasks/pending'):
                 m = re.match(r'(\d{4}-\d{2}-\d{2})_(\d{4})_', f)
                 if m and now >= datetime.strptime(f'{m[1]} {m[2]}', '%Y-%m-%d %H%M'):
@@ -153,7 +155,6 @@ if __name__ == '__main__':
                     dq = agent.put_task(f'按scheduled_task_sop执行任务文件 ../sche_tasks/pending/{f}（立刻移到running）\n内容：\n{raw}', source='scheduler')
                     threading.Thread(target=drain, args=(dq, f), daemon=True).start()
                     break
-            time.sleep(55 + random.random() * 10)
     else:
         agent.inc_out = True
         while True:

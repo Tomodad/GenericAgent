@@ -1,9 +1,13 @@
 import os, sys, re, threading, asyncio, queue as Q, socket, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agentmain import GeneraticAgent
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
-from telegram.request import HTTPXRequest
+try:
+    from telegram import Update
+    from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+    from telegram.request import HTTPXRequest
+except:
+    print("Please ask the agent install python-telegram-bot to use telegram module.")
+    sys.exit(1)
 import mykey
 
 agent = GeneraticAgent()
@@ -89,8 +93,12 @@ if __name__ == '__main__':
     # Single instance lock using socket
     try:
         _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); _lock_sock.bind(('127.0.0.1', 19527))
-    except OSError: sys.exit('Another instance is already running.')
-    if not ALLOWED: sys.exit('ERROR: tg_allowed_users in mykey.py is empty or missing. Set it to avoid unauthorized access.')
+    except OSError: 
+        print('[Telegram] Another instance is already running, skiping...')
+        sys.exit(1)
+    if not ALLOWED: 
+        print('[Telegram] ERROR: tg_allowed_users in mykey.py is empty or missing. Set it to avoid unauthorized access.')
+        sys.exit(1)
     _logf = open(os.path.join(os.path.dirname(__file__), 'temp', 'tgapp.log'), 'a', encoding='utf-8', buffering=1)
     sys.stdout = sys.stderr = _logf
     print('[NEW] New process starting, the above are history infos ...')
