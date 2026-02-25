@@ -57,14 +57,6 @@
         console.log(log_prefix + `使用现有会话ID: ${sid}`);
     }
 
-    try {
-        GM_setValue('new_tab_report', {
-            url: window.location.href,
-            sessionId: sid, 
-            ts: Date.now()
-        });
-    } catch (e) {}
-
     // 保存会话ID
     GM_setValue('sid', sid);
 
@@ -374,33 +366,17 @@
             try {
                 let data = JSON.parse(e.data);
                 ws.send(JSON.stringify({type: 'ack',id: data.id}));
-                let startTime = Date.now();
-                let newTabs = [];
-                let checkNewTab = data.detect_newtab === true;
-                GM_setValue('new_tab_report', null);
                 const response = executeCode(data);
              
                 if (response.error) {
                     handleError(data.id, response.error, '执行代码');
                 } else {
-                    if (checkNewTab) {
-                        for (let i = 0; i < 10; i++) {
-                            await new Promise(r => setTimeout(r, 150));
-                            let latestReport = GM_getValue('new_tab_report');
-                            if (latestReport && latestReport.ts >= startTime) {
-                                console.log(`%c[Detected] 轮询第 ${i+1} 次抓到新标签!`, "color: green");
-                                newTabs.push(latestReport);
-                                break; 
-                            }
-                        }
-                    }
                     updateStatus('ok');  
                     ws.send(JSON.stringify({
                         type: 'result',
                         id: data.id,
                         sessionId: sid,
-                        result: response.result,
-                        newTabs: newTabs
+                        result: response.result
                     }));
                 }
             } catch (parseError) {

@@ -93,9 +93,8 @@ class TMWebDriver:
                 session_id = data.get('sessionId')
                 code = data.get('code')
                 timeout = float(data.get('timeout', 10.0))
-                detect_newtab = data.get('detect_newtab', False)
                 try:
-                    result = self.execute_js(code, timeout=timeout, session_id=session_id, detect_newtab=detect_newtab)
+                    result = self.execute_js(code, timeout=timeout, session_id=session_id)
                     print('[remote result]', (str(code)[:50] + ' RESULT:' +str(result)[:50]).replace('\n', ' '))
                     return json.dumps({'r': result}, ensure_ascii=False)
                 except Exception as e:
@@ -168,13 +167,12 @@ class TMWebDriver:
                 session.mark_disconnected()
                 break  
     
-    def execute_js(self, code, timeout=15, session_id=None, detect_newtab=False) -> Any:  
+    def execute_js(self, code, timeout=15, session_id=None) -> Any:  
         if session_id is None: session_id = self.default_session_id  
         if self.is_remote:
             print('remote_execute_js')
             response = self._remote_cmd({"cmd": "execute_js", "sessionId": session_id, 
-                                         "code": code, "timeout": str(timeout), 
-                                         "detect_newtab": detect_newtab}).get('r', {})
+                                         "code": code, "timeout": str(timeout)}).get('r', {})
             if response.get('error'): raise Exception(response['error'])
             return response
  
@@ -194,7 +192,7 @@ class TMWebDriver:
         tp = session.type
         assert tp in ['ws', 'http'], f"Unsupported session type: {tp}"
         exec_id = str(uuid.uuid4())  
-        payload = json.dumps({'id': exec_id, 'code': code, 'detect_newtab': detect_newtab})
+        payload = json.dumps({'id': exec_id, 'code': code})
 
         if tp == 'ws': session.ws_client.send_message(payload)  
         elif tp == 'http': session.http_queue.put(payload)
@@ -265,7 +263,7 @@ class TMWebDriver:
     def jump(self, url, timeout=10): self.execute_js(f"window.location.href='{url}'", timeout=timeout)
     def newtab(self, url=None):
         if url is None: url = "http://www.baidu.com/robots.txt"
-        return self.execute_js(f'GM_openInTab("{url}");', detect_newtab=True)
+        return self.execute_js(f'GM_openInTab("{url}");')
     
 if __name__ == "__main__":
     driver = TMWebDriver(host='localhost', port=18765)

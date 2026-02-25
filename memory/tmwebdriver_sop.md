@@ -36,6 +36,12 @@ fetch('PDF_URL').then(r=>r.blob()).then(b=>{
 ```
 注意：需同源或CORS允许，跨域先导航到目标域再执行
 
+## Chrome后台标签节流
+- 后台标签中`setTimeout`被Chrome intensive throttling延迟到≥1min/次
+- TM脚本中detect_newtab的轮询(`setTimeout 150ms × 10`)会超时
+- 已修复：移除TM脚本内轮询，改由Python侧`get_session_dict()`前后对比检测新标签
+- 同理：TM脚本中任何后台逻辑都应避免依赖setTimeout轮询
+
 ## Cookie提取(含HttpOnly)
 前提：需先安装`assets/cookie_grabber/`扩展
 机制：注入`id="__ljqcg__"`的div→扩展检测后自动将完整cookie写回该元素textContent（含HttpOnly）

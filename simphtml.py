@@ -862,13 +862,12 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction="", extra_js="")
 def execute_js_rich(script, driver):
     try: last_html = get_html(driver, cutlist=False, extra_js=temp_monitor_js)
     except: last_html = None
-    result = None;  error_msg = None;  newTabs = []; reloaded = False
+    result = None;  error_msg = None;  reloaded = False
     before_sids = set(driver.get_session_dict().keys())
     try:
         print(f"Executing: {script[:250]} ...")
-        response = driver.execute_js(script, detect_newtab=True)
+        response = driver.execute_js(script)
         result = response.get('data') or response.get('result')
-        newTabs = response.get('newTabs', [])
         if response.get('closed', 0) == 1: reloaded = True
         time.sleep(2) 
     except Exception as e:
@@ -879,16 +878,15 @@ def execute_js_rich(script, driver):
     rr = {
         "status": "failed" if error_msg else "success",
         "js_return": result,
-        "environment": {"newTabs": newTabs, "reloaded": reloaded},
+        "environment": {"reloaded": reloaded},
         "tab_id": driver.default_session_id
     }  
-    if reloaded and len(newTabs) == 0:
-        after = driver.get_session_dict()
-        new_sids = {k: v for k, v in after.items() if k not in before_sids}
-        if new_sids:
-            newTabs = [{'id': k, 'url': v} for k, v in new_sids.items()]
-            rr['environment']['newTabs'] = newTabs
-            rr['suggestion'] = "页面已刷新，以上新标签页在执行期间连接。"
+    after = driver.get_session_dict()
+    new_sids = {k: v for k, v in after.items() if k not in before_sids}
+    if new_sids:
+        newTabs = [{'id': k, 'url': v} for k, v in new_sids.items()]
+        rr['environment']['newTabs'] = newTabs
+        rr['suggestion'] = "页面已刷新，以上新标签页在执行期间连接。"
     if error_msg: rr['error'] = error_msg
     if not reloaded:
         try: rr['transients'] = get_temp_texts(driver)
