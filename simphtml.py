@@ -862,7 +862,7 @@ def get_html(driver, cutlist=False, maxchars=28000, instruction="", extra_js="")
 def execute_js_rich(script, driver):
     try: last_html = get_html(driver, cutlist=False, extra_js=temp_monitor_js)
     except: last_html = None
-    result = None;  error_msg = None;  reloaded = False
+    result = None;  error_msg = None;  reloaded = False; newTabs = []
     before_sids = set(driver.get_session_dict().keys())
     try:
         print(f"Executing: {script[:250]} ...")

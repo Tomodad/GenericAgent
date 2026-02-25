@@ -1,6 +1,6 @@
 # ljqCtrl 使用与坐标转换 SOP
 
-> **must call update_working_memory**：`ljqCtrl一律使用物理坐标｜禁pyautogui｜操作前先gw激活窗口`
+> **must call update working ckp**：`ljqCtrl一律使用物理坐标｜禁pyautogui｜操作前先gw激活窗口`
 
 ## 0. API 快速参考 (Signatures)
 - `ljqCtrl.dpi_scale`: float (缩放系数 = 逻辑宽度 / 物理宽度)

@@ -1,6 +1,13 @@
-import webview, threading, subprocess, sys, time, os, ctypes, atexit, socket
+import webview, threading, subprocess, sys, time, os, ctypes, atexit, socket, random
 
 WINDOW_WIDTH, WINDOW_HEIGHT, RIGHT_PADDING, TOP_PADDING = 600, 900, 0, 300
+
+def find_free_port(lo=8501, hi=8599):
+    ports = list(range(lo, hi+1)); random.shuffle(ports)
+    for p in ports:
+        try: s = socket.socket(); s.bind(('127.0.0.1', p)); s.close(); return p
+        except OSError: continue
+    raise RuntimeError(f'No free port in {lo}-{hi}')
 
 def get_screen_width():
     try: return ctypes.windll.user32.GetSystemMetrics(0)
@@ -55,12 +62,13 @@ def idle_monitor():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('port', nargs='?', default='8501'); 
+    parser.add_argument('port', nargs='?', default='0'); 
     parser.add_argument('--no-tg', action='store_true', help='不启动 Telegram Bot'); 
     parser.add_argument('--no-sched', action='store_true', help='不启动计划任务调度器')
     parser.add_argument('--llm_no', type=int, default=0, help='LLM编号')
     args = parser.parse_args()
-    port = args.port
+    port = str(find_free_port()) if args.port == '0' else args.port
+    print(f'[Launch] Using port {port}')
     threading.Thread(target=start_streamlit, args=(port,), daemon=True).start()
 
     if not args.no_tg:
