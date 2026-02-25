@@ -268,7 +268,7 @@ class ToolClient:
     def chat(self, messages, tools=None):
         full_prompt = self._build_protocol_prompt(messages, tools)      
         print("Full prompt length:", len(full_prompt), 'chars')
-        with open('model_responses.txt', 'a', encoding='utf-8', errors="replace") as f:
+        with open(f'./temp/model_responses_{os.getpid()}.txt', 'a', encoding='utf-8', errors="replace") as f:
             f.write(f"=== Prompt ===\n{full_prompt}\n")
         gen = self.backend.ask(full_prompt, stream=True)
         raw_text = ''; summarytag = '[NextWillSummary]'
@@ -278,7 +278,7 @@ class ToolClient:
         print('Complete response received.')
         if raw_text.endswith(summarytag):
             self.last_tools = ''; raw_text = raw_text[:-len(summarytag)]
-        with open('model_responses.txt', 'a', encoding='utf-8', errors="replace") as f:
+        with open(f'./temp/model_responses_{os.getpid()}.txt', 'a', encoding='utf-8', errors="replace") as f:
             f.write(f"=== Response ===\n{raw_text}\n\n")
         return self._parse_mixed_response(raw_text)
 
