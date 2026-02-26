@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ljq_web_driver
 // @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.31
 // @description  Execute JS via ljq_web_driver
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // @author       You

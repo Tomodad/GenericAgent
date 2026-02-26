@@ -49,3 +49,12 @@ fetch('PDF_URL').then(r=>r.blob()).then(b=>{
 - 备选：`window.open(location.href,'_blank')` 前台开新标签→win32截图→完后close
   - GM_openInTab在web_execute_js不可用（非油猴上下文）
   - 浏览器无JS API切标签页，只能开新的来保证前台
+
+## 跨域iframe操控(postMessage中继)
+- 跨域iframe的contentDocument不可访问，web_execute_js只在顶层执行
+- TM脚本已改造：iframe内不return，改为监听postMessage并eval执行+回传结果
+- 顶层发送：`iframe.contentWindow.postMessage({type:'ljq_exec', id, code}, '*')`
+- iframe回传：`{type:'ljq_result', id, result}` 通过window.addEventListener('message')接收
+- ⚠只能eval表达式，不支持return/函数体包装，构造代码时注意
+- 流程：发postMessage→等→读window._ljqResults[id]获取结果
+- 已验证：读取iframe内DOM(document.title)、填写input均成功
