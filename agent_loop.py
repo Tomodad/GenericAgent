@@ -86,7 +86,7 @@ def agent_runner_loop(client, system_prompt, user_input, handler, tools_schema, 
             next_prompt += f"<tool_result>\n{datastr}\n</tool_result>\n\n"
         next_prompt += outcome.next_prompt
         if (turn+1) % 7 == 0:
-            next_prompt += f"\n\n[DANGER] 已连续执行第 {turn+1} 轮。禁止无效重试。若无有效进展，必须切换策略：1. 探测物理边界 2. 请求用户协助。另外，建议调用 update_working_checkpoint 保存当前关键上下文。"
+            next_prompt += f"\n\n[DANGER] 已连续执行第 {turn+1} 轮。禁止无效重试。若无有效进展，必须切换策略：1. 探测物理边界 2. 请求用户协助。如有需要，可调用 update_working_checkpoint 保存关键上下文。"
         if (turn+1) % 30 == 0:
             next_prompt += f"\n\n### [DANGER] 已连续执行第 {turn+1} 轮。你必须总结情况进行ask_user，不允许继续重试。"
         messages = [{"role": "user", "content": next_prompt}]
