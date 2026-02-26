@@ -4,15 +4,20 @@
 
 ## 第一阶段：环境启动 (Initial Ignition)
 
-1. **Python 环境检查与核心库安装**
-   - 确保安装了 Python 3.10+。
-   - **必须手动执行**：`pip install streamlit pywebview`
+1. **Python 环境检查**
+   - 确保安装了 Python 3.10+。几乎零额外依赖。
+   - `requests` 是唯一的第三方硬依赖，但多数 Python 发行版已预装。若缺失：`pip install requests`
 
 2. **配置身份密钥 (Credentials)**
    - 复制 `mykey_template.py` 为 `mykey.py` 并填入 API Key。
 
-3. **唤醒 Agent**
-   - 运行 `launch.pyw`。看到悬浮窗后，我即刻上线。
+3. **唤醒 Agent（CLI 最小启动）**
+   - 运行 `python agentmain.py`，进入 CLI 交互模式。此时 Agent 已可工作。
+   - 后续所有依赖（包括 GUI 模式所需的包）都可以叫 Agent 帮你安装。
+
+4. **（可选）升级为 GUI 模式**
+   - **指令**：`pip install streamlit pywebview`
+   - 安装后运行 `launch.pyw`，即可使用悬浮窗 GUI 界面。
 
 ## 第二阶段：能力激活 (Ability Activation)
 

@@ -304,7 +304,7 @@ class GenericAgentHandler(BaseHandler):
         script = args.get("script", "")
         if not script: return StepOutcome(None, next_prompt="[Error] Empty script param. Check your tool call arguments.")
         save_to_file = args.get("save_to_file", "")
-        switch_tab_id = args.get("switch_tab_id")
+        switch_tab_id = args.get("switch_tab_id") or args.get("tab_id")
         result = web_execute_js(script, switch_tab_id=switch_tab_id)
         if save_to_file and "js_return" in result:
             content = str(result["js_return"] or '')
