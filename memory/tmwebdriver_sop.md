@@ -44,4 +44,8 @@ fetch('PDF_URL').then(r=>r.blob()).then(b=>{
 
 ## Cookie提取(含HttpOnly)
 前提：需先安装`assets/cookie_grabber/`扩展
-机制：注入`id="__ljqcg__"`的div→扩展检测后自动将完整cookie写回该元素textContent（含HttpOnly）
+机制：注入`id="__ljqcg__"`的div→扩展检测后自动将完整cookie写回该元素textContent（含HttpOnly）## 验证码/页面视觉截图
+- 优先：JS `canvas.toDataURL()` 直接拿base64（验证码是canvas/img时最干净，无需截屏）
+- 备选：`window.open(location.href,'_blank')` 前台开新标签→win32截图→完后close
+  - GM_openInTab在web_execute_js不可用（非油猴上下文）
+  - 浏览器无JS API切标签页，只能开新的来保证前台

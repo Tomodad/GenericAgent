@@ -21,7 +21,7 @@
     const log_prefix = "ljq_driver: ";
 
     if (window.self !== window.top) {
-        console.log(log_prefix + '在iframe中不执行');
+        window.addEventListener('message',e=>{if(e.data?.type==='ljq_exec'){try{let r=eval(e.data.code);parent.postMessage({type:'ljq_result',id:e.data.id,result:String(r)},'*')}catch(err){parent.postMessage({type:'ljq_result',id:e.data.id,error:err.message},'*')}}});
         return;
     }
 
