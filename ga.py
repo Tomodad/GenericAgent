@@ -1,4 +1,5 @@
 import sys, os, re, json, time, threading
+from datetime import datetime
 from pathlib import Path
 import tempfile, traceback, subprocess, itertools, collections
 if sys.stdout is None: sys.stdout = open(os.devnull, "w")
@@ -129,8 +130,7 @@ def web_scan(tabs_only=False, switch_tab_id=None):
         result = {
             "status": "success",
             "metadata": {
-                "tabs_count": len(tabs),
-                "tabs": tabs,
+                "tabs_count": len(tabs), "tabs": tabs,
                 "active_tab": driver.default_session_id
             }
         }
@@ -147,6 +147,16 @@ def format_error(e):
         fname = os.path.basename(f.filename)
         return f"{exc_type.__name__}: {str(e)} @ {fname}:{f.lineno}, {f.name} -> `{f.line}`"
     return f"{exc_type.__name__}: {str(e)}"
+
+def log_memory_access(path):
+    if 'memory' not in path: return
+    stats_file = 'memory/file_access_stats.json'
+    try:
+        with open(stats_file, 'r', encoding='utf-8') as f: stats = json.load(f)
+    except: stats = {}
+    fname = os.path.basename(path)
+    stats[fname] = {'count': stats.get(fname, {}).get('count', 0) + 1, 'last': datetime.now().strftime('%Y-%m-%d')}
+    with open(stats_file, 'w', encoding='utf-8') as f: json.dump(stats, f, indent=2, ensure_ascii=False)
 
 def web_execute_js(script, switch_tab_id=None):
     """
@@ -384,6 +394,7 @@ class GenericAgentHandler(BaseHandler):
         if ' ... [TRUNCATED]' in result:
             result += '\n\n（某些行被截断，如需完整内容可改用 code_run 读取）'
         next_prompt = self._get_anchor_prompt()
+        log_memory_access(path)
         if 'memory' in path or 'sop' in path: 
             next_prompt += "\n[SYSTEM TIPS] 正在读取记忆或SOP文件，若决定按sop执行请提取sop中的关键点（特别是靠后的）update working memory."
         return StepOutcome(result, next_prompt=next_prompt)
