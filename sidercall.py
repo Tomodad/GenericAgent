@@ -1,4 +1,5 @@
 import os, json, re, time, requests, sys, threading, urllib3
+from datetime import datetime
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try: import mykey
@@ -23,7 +24,7 @@ def compress_history_tags(messages, keep_recent=4, max_len=200):
 
 class SiderLLMSession:
     def __init__(self, sider_cookie, default_model="gemini-3.0-flash"):
-        from sider_ai_api import Session
+        from sider_ai_api import Session   # 不使用sider的话没必要安装这个包
         self._core = Session(cookie=sider_cookie, proxies=proxies)   
         self.default_model = default_model
     def ask(self, prompt, model=None, stream=False):
@@ -269,7 +270,7 @@ class ToolClient:
         full_prompt = self._build_protocol_prompt(messages, tools)      
         print("Full prompt length:", len(full_prompt), 'chars')
         with open(f'./temp/model_responses_{os.getpid()}.txt', 'a', encoding='utf-8', errors="replace") as f:
-            f.write(f"=== Prompt ===\n{full_prompt}\n")
+            f.write(f"=== Prompt === {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{full_prompt}\n")
         gen = self.backend.ask(full_prompt, stream=True)
         raw_text = ''; summarytag = '[NextWillSummary]'
         for chunk in gen:
@@ -279,7 +280,7 @@ class ToolClient:
         if raw_text.endswith(summarytag):
             self.last_tools = ''; raw_text = raw_text[:-len(summarytag)]
         with open(f'./temp/model_responses_{os.getpid()}.txt', 'a', encoding='utf-8', errors="replace") as f:
-            f.write(f"=== Response ===\n{raw_text}\n\n")
+            f.write(f"=== Response === {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{raw_text}\n\n")
         return self._parse_mixed_response(raw_text)
 
     def _build_protocol_prompt(self, messages, tools):
