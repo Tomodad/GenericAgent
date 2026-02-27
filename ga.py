@@ -172,7 +172,6 @@ def web_execute_js(script, switch_tab_id=None):
             "reloaded": reloaded
         },
         "diff": diff_summary,
-        "suggestion": suggestion
     }
     """
     global driver
