@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ljq_web_driver
 // @namespace    http://tampermonkey.net/
-// @version      0.31
+// @version      0.32
 // @description  Execute JS via ljq_web_driver
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // @author       You
@@ -310,6 +310,9 @@
                 } catch (e) {
                     if (isIllegalReturnError(e)) {
                         result = (new Function(jsCode))();
+                    } else if (isAwaitError(e)) {
+                        result = (async function() { return eval(jsCode); })();
+                        result = 'Promise is running, cannot get return value. Suggest avoiding await next time, or use global variables (e.g., window.myVar) to store async results.';
                     } else throw e; 
                 }
             }
@@ -333,6 +336,13 @@
             /Illegal return statement/i.test(e.message) ||      // Chrome 常见
             /return not in function/i.test(e.message) ||        // Firefox 常见
             /Illegal 'return' statement/i.test(e.message)       // 兼容旧文案
+        );
+    }
+
+    function isAwaitError(e) {
+        return e instanceof SyntaxError && (
+            /await is only valid in async/i.test(e.message) ||  // Chrome
+            /await.*async/i.test(e.message)                     // Firefox等
         );
     }
 
