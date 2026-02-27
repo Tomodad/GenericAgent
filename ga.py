@@ -399,7 +399,7 @@ class GenericAgentHandler(BaseHandler):
         yield f"key_info:\n{self.key_info}\n\n"
         yield f"related_sop:\n{self.related_sop}\n\n"
         next_prompt = self._get_anchor_prompt()
-        next_prompt += '\n[SYSTEM TIPS] 此函数一般在任务开始或中间时调用，如果任务已成功完成应该是start_long_term_update用于结算长期记忆。\n'
+        #next_prompt += '\n[SYSTEM TIPS] 此函数一般在任务开始或中间时调用，如果任务已成功完成应该是start_long_term_update用于结算长期记忆。\n'
         return StepOutcome({"status": "success"}, next_prompt=next_prompt)
 
     def do_no_tool(self, args, response):

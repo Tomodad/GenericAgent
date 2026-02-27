@@ -63,7 +63,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('port', nargs='?', default='0'); 
-    parser.add_argument('--no-tg', action='store_true', help='不启动 Telegram Bot'); 
+    parser.add_argument('--tg', action='store_true', help='启动 Telegram Bot'); 
     parser.add_argument('--no-sched', action='store_true', help='不启动计划任务调度器')
     parser.add_argument('--llm_no', type=int, default=0, help='LLM编号')
     args = parser.parse_args()
@@ -71,11 +71,11 @@ if __name__ == '__main__':
     print(f'[Launch] Using port {port}')
     threading.Thread(target=start_streamlit, args=(port,), daemon=True).start()
 
-    if not args.no_tg:
+    if args.tg:
         tgproc = subprocess.Popen([sys.executable, "tgapp.py"], creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         atexit.register(tgproc.kill)
         print('[Launch] Telegram Bot started')
-    else: print('[Launch] Telegram Bot disabled (--no-tg)')
+    else: print('[Launch] Telegram Bot not enabled (use --tg to start)')
     
     if not args.no_sched:
         try:
