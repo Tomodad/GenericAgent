@@ -86,33 +86,97 @@ class ClaudeSession:
         return _ask_gen() if stream else ''.join(list(_ask_gen()))
 
 class LLMSession:
-    def __init__(self, api_key, api_base, model, context_win=12000, proxy=None):
-        self.api_key = api_key; self.api_base = api_base; self.default_model = model
+    def __init__(self, api_key, api_base, model, context_win=12000, proxy=None, api_mode="chat_completions"):
+        self.api_key = api_key; self.api_base = api_base.rstrip('/'); self.default_model = model
         self.context_win = context_win; self.raw_msgs = []; self.messages = []
         self.proxies = {"http": proxy, "https": proxy} if proxy else None
         self.lock = threading.Lock()
+        mode = str(api_mode or "chat_completions").strip().lower().replace('-', '_')
+        if mode in ["responses", "response"]: self.api_mode = "responses"
+        else: self.api_mode = "chat_completions"
+
+    def _endpoint(self, path):
+        if self.api_base.endswith('/v1'): return f"{self.api_base}/{path.lstrip('/')}"
+        return f"{self.api_base}/v1/{path.lstrip('/')}"
+
+    def _to_responses_input(self, messages):
+        result = []
+        for msg in messages:
+            role = str(msg.get("role", "user")).lower()
+            if role not in ["user", "assistant", "system", "developer"]: role = "user"
+            content = msg.get("content", "")
+            text_type = "output_text" if role == "assistant" else "input_text"
+            parts = []
+            if isinstance(content, str):
+                if content: parts.append({"type": text_type, "text": content})
+            elif isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict): continue
+                    ptype = part.get("type")
+                    if ptype == "text":
+                        text = part.get("text", "")
+                        if text: parts.append({"type": text_type, "text": text})
+                    elif ptype == "image_url":
+                        url = (part.get("image_url") or {}).get("url", "")
+                        if url and role != "assistant": parts.append({"type": "input_image", "image_url": url})
+            if len(parts) == 0: parts = [{"type": text_type, "text": str(content)}]
+            result.append({"role": role, "content": parts})
+        return result
 
     def raw_ask(self, messages, model=None, temperature=0.5):
         if model is None: model = self.default_model
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
-        payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
+        if self.api_mode == "responses":
+            url = self._endpoint("responses")
+            payload = {"model": model, "input": self._to_responses_input(messages), "temperature": temperature, "stream": True}
+        else:
+            url = self._endpoint("chat/completions")
+            payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
         try:
-            with requests.post(f"{self.api_base}/v1/chat/completions", headers=headers, 
-                               json=payload, stream=True, timeout=(5, 60), proxies=self.proxies) as r:
+            with requests.post(url, headers=headers, json=payload, stream=True, timeout=(5, 60), proxies=self.proxies) as r:
                 r.raise_for_status()
-                buffer = ''
+                buffer = ''; seen_delta = False
                 for line in r.iter_lines():
-                    line = line.decode("utf-8")
+                    line = line.decode("utf-8") if isinstance(line, bytes) else line
                     if not line or not line.startswith("data:"): continue
                     data = line[5:].lstrip()
                     if data == "[DONE]": break
-                    obj = json.loads(data); ch = (obj.get("choices") or [{}])[0]
-                    finish_reason = ch.get("finish_reason")
-                    delta = (ch.get("delta") or {}).get("content")
-                    if delta:
-                        yield delta; buffer += delta
-                        if '</tool_use>' in buffer[-30:]: break
-                    if finish_reason: break
+                    try: obj = json.loads(data)
+                    except: continue
+                    if self.api_mode == "responses":
+                        etype = obj.get("type", "")
+                        delta = obj.get("delta", "") if etype == "response.output_text.delta" else ""
+                        if delta:
+                            seen_delta = True
+                            yield delta; buffer += delta
+                        elif etype == "response.output_text.done" and not seen_delta:
+                            text = obj.get("text", "")
+                            if text:
+                                yield text; buffer += text
+                        elif etype == "error":
+                            err = obj.get("error", {})
+                            emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                            if emsg:
+                                yield f"Error: {emsg}"
+                                return
+                        elif etype == "response.completed":
+                            break
+                    else:
+                        ch = (obj.get("choices") or [{}])[0]
+                        finish_reason = ch.get("finish_reason")
+                        delta = (ch.get("delta") or {}).get("content")
+                        if delta:
+                            yield delta; buffer += delta
+                        if finish_reason: break
+                    if '</tool_use>' in buffer[-30:]: break
+        except requests.HTTPError as e:
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", "unknown")
+            body = ""
+            try: body = (resp.text or "").strip()
+            except: body = ""
+            body = body[:1200] if body else "<empty>"
+            yield f"Error: HTTP {status} {str(e)}; body: {body}"
         except Exception as e:
             yield f"Error: {str(e)}"
 
@@ -121,10 +185,11 @@ class LLMSession:
         messages = []
         for i, msg in enumerate(raw_list):
             prompt = msg['prompt']
-            if omit_images and msg['image']: messages.append({"role": msg['role'], "content": "[Image omitted, if you needed it, ask me]\n" + prompt})
-            elif not omit_images and msg['image']:
+            image = msg.get('image')
+            if omit_images and image: messages.append({"role": msg['role'], "content": "[Image omitted, if you needed it, ask me]\n" + prompt})
+            elif not omit_images and image:
                 messages.append({"role": msg['role'], "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{msg['image']}"}},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
                     {"type": "text", "text": prompt} ]})
             else:
                 messages.append({"role": msg['role'], "content": prompt})

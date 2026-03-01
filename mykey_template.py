@@ -2,7 +2,8 @@
 oai_config = {
     'apikey':'sk-uklURcj',
     'apibase':"http://113.145.139.147:3001",
-    'model':"openai/gpt-5.1"
+    'model':"openai/gpt-5.1",
+    'api_mode':"chat_completions"   # optional: "chat_completions" | "responses"
 }
 
 # or
