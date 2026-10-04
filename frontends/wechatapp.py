@@ -1,4 +1,4 @@
-import os, sys, re, threading, queue, time, socket, json, struct, base64, uuid, hashlib, math
+import os, sys, re, threading, queue, time, socket, json, struct, base64, uuid, hashlib, math, subprocess
 from pathlib import Path
 from urllib.parse import quote
 import requests, qrcode
@@ -37,6 +37,7 @@ class WxBotClient:
         self.token = token
         self.bot_id = None
         self._buf = ''
+        self.last_message = None
         if not self.token: self._load()
 
     def _load(self):
@@ -170,7 +171,7 @@ class WxBotClient:
             except Exception as e:
                 last_err = e
                 if 'client error' in str(e) or attempt >= 3: break
-                print(f'[WX] CDN upload retry {attempt}: {e}', file=sys.__stdout__)
+                print(f'[WX] CDN upload retry {attempt}: {e}', file=_logf)
         raise last_err
 
     def _send_media(self, to_user_id, file_path, media_type, item_type, item_key, context_token=''):
@@ -240,6 +241,11 @@ class WxBotClient:
     def send_video(self, to_user_id, file_path, context_token=''):
         return self._send_media(to_user_id, file_path, 2, ITEM_VIDEO, 'video_item', context_token)
 
+    def reply_text(self, text):
+        if not self.last_message: raise RuntimeError('no last message')
+        return self.send_text(self.last_message['from_user_id'], text,
+                              self.last_message.get('context_token', ''))
+
     @staticmethod
     def extract_text(msg):
         return '\n'.join(it['text_item'].get('text', '')
@@ -259,6 +265,7 @@ class WxBotClient:
                     if not self.is_user_msg(msg) or mid in seen: continue
                     seen.add(mid)
                     if len(seen) > 5000: seen = set(list(seen)[-2000:])
+                    self.last_message = msg
                     try: on_message(self, msg)
                     except Exception as e: print(f'[Bot] 回调异常: {e}')
             except KeyboardInterrupt: print('[Bot] 退出'); break
@@ -286,14 +293,61 @@ def _dl_media(items):
                 pt = AES.new(aes_key, AES.MODE_ECB).decrypt(ct); pt = pt[:-pt[-1]]
                 fname = sub.get('file_name') or f'{uuid.uuid4().hex[:8]}{ext or ".bin"}'
                 p = os.path.join(_TEMP_DIR, fname); open(p, 'wb').write(pt)
-                paths.append(p); print(f'[WX] media saved: {fname}', file=sys.__stdout__)
+                paths.append(p); print(f'[WX] media saved: {fname}', file=_logf)
             except Exception as e:
-                print(f'[WX] media dl err ({key}): {e}', file=sys.__stdout__)
+                print(f'[WX] media dl err ({key}): {e}', file=_logf)
             break  # one media per item
     return paths
 
 agent = GeneraticAgent()
 agent.verbose = False
+
+_MODE, _cond_seq = 'conductor', 0
+_COND = 'http://127.0.0.1:8900/chat'
+
+def _cond_up():
+    try:
+        socket.create_connection(('127.0.0.1', 8900), .5).close(); return True
+    except OSError: return False
+
+def _start_conductor():
+    if _cond_up(): return True
+    # Win-only creationflags must not be evaluated on Linux (AttributeError).
+    if os.name == 'nt':
+        flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP |
+                 getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        kw = {'creationflags': flags}
+    else:
+        kw = {'start_new_session': True}
+    try:
+        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), 'conductor.py'), '--no-browser'],
+                         cwd=os.path.dirname(__file__), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+    except OSError: return False
+    for _ in range(20):
+        time.sleep(.5)
+        if _cond_up(): return True
+    return False
+
+def _cond_forward(bot, text, seq):
+    if not _start_conductor():
+        bot.reply_text('Conductor 启动失败，请发 /switch 切回 agent。'); return
+    try:
+        mine = requests.post(_COND, json={'msg': text, 'role': 'user'}, timeout=10).json()
+    except Exception as e:
+        bot.reply_text(f'Conductor 转发失败: {e}\n请发 /switch。'); return
+    seen = {mine['id']}
+    while seq == _cond_seq:
+        time.sleep(5)
+        try: items = requests.get(_COND, params={'last': 50, 'mark_read': 'false'}, timeout=10).json()['items']
+        except Exception as e:
+            print(f'[WX] conductor poll err: {e}', file=_logf); continue
+        for item in items:
+            if seq != _cond_seq: return
+            if item['id'] in seen or item['ts'] < mine['ts']: continue
+            seen.add(item['id'])
+            if item['role'] == 'user': return
+            if item['role'] in ('conductor', 'error') and item.get('msg'):
+                bot.reply_text(item['msg'][-3000:])
 
 _TAG_PATS = [r'<' + t + r'>.*?</' + t + r'>' for t in ('thinking', 'tool_use')]
 _TAG_PATS.append(r'<file_content>.*?</file_content>')
@@ -333,6 +387,7 @@ def _clean(t):
     return re.sub(r'\n{3,}', '\n\n', _strip_md(t)).strip()
 
 def on_message(bot, msg):
+    global _MODE, _cond_seq
     text = bot.extract_text(msg).strip()
     uid = msg.get('from_user_id', '')
     ctx = msg.get('context_token', '')
@@ -340,9 +395,14 @@ def on_message(bot, msg):
     if not text and not media_paths: return
     if media_paths:
         text = (text + '\n' if text else '') + '\n'.join(f'[用户发送文件: {p}]' for p in media_paths)
-    print(f'[WX] 收到: {text[:80]}', file=sys.__stdout__)
+    print(f'[WX] 收到: {text[:80]}', file=_logf)
 
     # Commands
+    if text == '/switch':
+        _MODE = 'agent' if _MODE == 'conductor' else 'conductor'
+        _cond_seq += 1
+        bot.send_text(uid, f'模式 → {_MODE}', context_token=ctx)
+        return
     if text in ('/stop', '/abort'):
         agent.abort()
         _task_aborted[uid] = True
@@ -359,6 +419,11 @@ def on_message(bot, msg):
         else:
             lines = [f"{'→' if cur else '  '} [{i}] {name}" for i, name, cur in agent.list_llms()]
             bot.send_text(uid, 'LLMs:\n' + '\n'.join(lines), context_token=ctx)
+        return
+
+    if _MODE == 'conductor':
+        _cond_seq += 1
+        threading.Thread(target=_cond_forward, args=(bot, text, _cond_seq), daemon=True).start()
         return
 
     def _handle():
@@ -378,10 +443,10 @@ def on_message(bot, msg):
             s = text.strip(); t0 = time.time()
             try:
                 bot.send_text(uid, s, context_token=ctx)
-                print(f'[WX] send ok len={len(s)} dt={time.time()-t0:.1f}s', file=sys.__stdout__)
+                print(f'[WX] send ok len={len(s)} dt={time.time()-t0:.1f}s', file=_logf)
                 return True
             except Exception as e:
-                print(f'[WX] send err len={len(s)} dt={time.time()-t0:.1f}s {type(e).__name__}: {e}', file=sys.__stdout__)
+                print(f'[WX] send err len={len(s)} dt={time.time()-t0:.1f}s {type(e).__name__}: {e}', file=_logf)
                 return False
         def _send(show):
             nonlocal mi, last_send
@@ -401,7 +466,7 @@ def on_message(bot, msg):
                     turn = item['turn']; done.append(lastdone)
                 if len(done) > sent:
                     merged = _clean('\n\n'.join(done[sent:]))
-                    print(f'[WX] turns={len(done)}/{len(done)+1} sent={sent} sending={len(done)-sent}', file=sys.__stdout__)
+                    print(f'[WX] turns={len(done)}/{len(done)+1} sent={sent} sending={len(done)-sent}', file=_logf)
                     if _send(merged): sent = len(done)
         except queue.Empty: result = '[超时]'
         _typing_stop.set()
@@ -423,8 +488,8 @@ def on_message(bot, msg):
                 sender = bot.send_video if ext in {'.mp4', '.mov', '.m4v', '.webm'} else \
                          bot.send_image if ext in {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'} else bot.send_file
                 sender(uid, fpath, context_token=ctx)
-                print(f'[WX] sent media: {fpath}', file=sys.__stdout__)
-            except Exception as e: print(f'[WX] send media err: {e}', file=sys.__stdout__)
+                print(f'[WX] sent media: {fpath}', file=_logf)
+            except Exception as e: print(f'[WX] send media err: {e}', file=_logf)
 
     threading.Thread(target=_handle, daemon=True).start()
 
@@ -446,9 +511,9 @@ if __name__ == '__main__':
         finally:
             sys.stdout = sys.stderr = _logf
     threading.Thread(target=agent.run, daemon=True).start()
-    print(f'WeChat Bot 已启动 (bot_id={bot.bot_id})', file=sys.__stdout__)
+    print(f'WeChat Bot 已启动 (bot_id={bot.bot_id})', file=_logf)
     try:
         bot.run_loop(on_message)
     except AuthExpired:
-        print('[Bot] token expired, exit.', file=sys.__stdout__)
+        print('[Bot] token expired, exit.', file=_logf)
         sys.exit(2)

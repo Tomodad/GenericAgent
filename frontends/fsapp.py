@@ -1,5 +1,10 @@
-import argparse, asyncio, importlib.util, json, os, queue as Q, re, sys, threading, time, uuid
+import argparse, asyncio, glob, importlib, json, os, queue as Q, re, socket, sys, threading, time, uuid
+import atexit, hashlib
 from pathlib import Path
+try:
+    import msvcrt
+except Exception:
+    msvcrt = None
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -143,10 +148,18 @@ def _strip_files(text):
 
 
 def _display_text(text):
-    cleaned = _strip_files(_clean(text))
+    raw = text or ""
+    cleaned = _strip_files(_clean(raw))
     if cleaned:
         return cleaned
-    tail = (text or "").strip()[-_TRUNC_TAIL:]
+    summary_parts = []
+    for part in re.findall(r"<summary\b[^>]*>(.*?)</summary\s*>", raw, flags=re.DOTALL | re.IGNORECASE):
+        plain = _strip_files(re.sub(r"<[^>]+>", "", part)).strip()
+        if plain:
+            summary_parts.append(plain)
+    if summary_parts:
+        return "\n".join(summary_parts)
+    tail = raw.strip()[-_TRUNC_TAIL:]
     return "⚠️ 模型输出被截断或为空" + (f"\n…{tail}" if tail else "")
 
 
@@ -320,7 +333,8 @@ def _extract_post_content(content_json):
     return "", []
 
 
-AGENT_TIMEOUT_SEC = 900
+AGENT_IDLE_TIMEOUT_SEC = max(1, int(os.getenv("FSAPP_AGENT_IDLE_TIMEOUT_SEC", "900")))
+AGENT_MAX_RUNTIME_SEC = max(AGENT_IDLE_TIMEOUT_SEC, int(os.getenv("FSAPP_AGENT_MAX_RUNTIME_SEC", "7200")))
 
 agent = None
 agent_error = None
@@ -346,10 +360,18 @@ def _feishu_config():
     app_id = str(cfg.get("fs_app_id", "") or "").strip()
     app_secret = str(cfg.get("fs_app_secret", "") or "").strip()
     allowed = _to_allowed_set(cfg.get("fs_allowed_users", []))
-    return app_id, app_secret, allowed, (not allowed or "*" in allowed), path
+    # 用户可配置 fs_app_domain 切换国际版 Lark (larksuite.com)。
+    # 未配置时 fallback = lark.LARK_DOMAIN (国内 feishu.cn), 保持默认行为。
+    raw_domain = cfg.get("fs_app_domain", "") or ""
+    raw_domain = str(raw_domain).strip()
+    if raw_domain:
+        domain = raw_domain
+    else:
+        domain = lark.LARK_DOMAIN
+    return app_id, app_secret, allowed, (not allowed or "*" in allowed), path, domain
 
 
-APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH = _feishu_config()
+APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH, APP_DOMAIN = _feishu_config()
 
 
 def get_agent():
@@ -370,7 +392,7 @@ def get_agent():
 
 
 def create_client():
-    return lark.Client.builder().app_id(APP_ID).app_secret(APP_SECRET).log_level(lark.LogLevel.INFO).build()
+    return lark.Client.builder().app_id(APP_ID).app_secret(APP_SECRET).log_level(lark.LogLevel.INFO).domain(APP_DOMAIN).build()
 
 
 def _mask_secret(value):
@@ -430,15 +452,28 @@ def _send_raw(receive_id, payload, msg_type, rtype):
     return None
 
 
+# 不可重写失败的错误码（命中后msg_id不可信，需fallback）
+_PATCH_FATAL_CODES = {230099, 230020, 230021, 99991663, 99991672, 230040, 230041}
+# PatchMessage 404（message_id被删/撤回/跨群）
+_PATCH_NOT_FOUND = {404}
+
+
 def _patch_card(message_id, card_json):
+    """Patch 飞书卡片。返回 True=ok, False=失败, None=不可重试(已删/超限, 需fallback新建)."""
     try:
         body = PatchMessageRequest.builder().message_id(message_id).request_body(
             PatchMessageRequestBody.builder().content(card_json).build()
         ).build()
         r = client.im.v1.message.patch(body)
-        if not r.success():
-            print(f"[ERROR] patch_card 失败: {r.code}, {r.msg}")
-        return r.success()
+        if r.success():
+            return True
+        code = getattr(r, "code", None) or 0
+        msg = getattr(r, "msg", "")
+        print(f"[ERROR] patch_card 失败: code={code}, msg={msg}")
+        # 命中 fatal 集合: 卡片已不可信, 需重置msg_id走fallback
+        if code in _PATCH_FATAL_CODES or code in _PATCH_NOT_FOUND or code >= 400:
+            return None
+        return False
     except Exception as e:
         print(f"[ERROR] patch_card exception: {e}")
         traceback.print_exc()
@@ -552,10 +587,35 @@ def _describe_media(msg_type, file_path, filename):
     return f"[{msg_type}]\n[File: source: {file_path}]"
 
 
-def _send_local_file(receive_id, file_path, receive_id_type="open_id"):
-    if not os.path.isfile(file_path):
+def _resolve_generated_file_path(file_path, task_cwd=None):
+    """解析 [FILE:] 路径；相对路径优先按 Agent 任务 cwd，再尝试项目根目录。"""
+    raw = os.path.expandvars(os.path.expanduser(str(file_path or "").strip().strip('"').strip("'")))
+    if not raw:
+        return ""
+    if os.path.isabs(raw):
+        return os.path.normpath(raw)
+    roots = [task_cwd, os.path.join(PROJECT_ROOT, "temp"), PROJECT_ROOT]
+    candidates = []
+    seen = set()
+    for root in roots:
+        if not root:
+            continue
+        candidate = os.path.abspath(os.path.join(root, raw))
+        key = os.path.normcase(candidate)
+        if key not in seen:
+            seen.add(key)
+            candidates.append(candidate)
+            if os.path.isfile(candidate):
+                return candidate
+    return candidates[0] if candidates else os.path.abspath(raw)
+
+
+def _send_local_file(receive_id, file_path, receive_id_type="open_id", task_cwd=None):
+    resolved_path = _resolve_generated_file_path(file_path, task_cwd)
+    if not os.path.isfile(resolved_path):
         send_message(receive_id, f"⚠️ 文件不存在: {file_path}", receive_id_type=receive_id_type)
         return False
+    file_path = resolved_path
     ext = os.path.splitext(file_path)[1].lower()
     if ext in _IMAGE_EXTS:
         image_key = _upload_image_sync(file_path)
@@ -572,9 +632,9 @@ def _send_local_file(receive_id, file_path, receive_id_type="open_id"):
     return False
 
 
-def _send_generated_files(receive_id, raw_text, receive_id_type="open_id"):
+def _send_generated_files(receive_id, raw_text, receive_id_type="open_id", task_cwd=None):
     for file_path in _extract_files(raw_text):
-        _send_local_file(receive_id, file_path, receive_id_type)
+        _send_local_file(receive_id, file_path, receive_id_type, task_cwd=task_cwd)
 
 
 def _build_user_message(message):
@@ -626,58 +686,142 @@ def _build_step_detail(resp, tool_calls):
         parts.append(f"### 💭 Thinking\n{thinking}")
     if tool_calls:
         parts.append("### 🛠 Tool Calls\n" + "\n".join(_fmt_tool_call(tc) for tc in tool_calls))
-    content = _display_text((getattr(resp, 'content', '') or '')).strip() if resp else ''
+    # 中间轮允许 content 只有 <summary> 等控制标签；summary 已作为 panel 标题展示，
+    # 清洗后为空不等于模型被截断。终态仍由 _display_text 保留真正空输出的告警。
+    raw_content = (getattr(resp, 'content', '') or '') if resp else ''
+    content = _strip_files(_clean(raw_content))
     if content and content != '...':
         parts.append(f"### 📝 Output\n{content}")
     return "\n\n".join(parts)
 
 
+def _select_terminal_output(item):
+    """正常完成时只展示最后一轮输出；异常附加文本或旧协议保留完整 done。"""
+    if not isinstance(item, dict):
+        return str(item or "")
+    full = str(item.get("done", "") or "")
+    outputs = item.get("outputs")
+    if isinstance(outputs, (list, tuple)):
+        last = next((x for x in reversed(outputs) if isinstance(x, str) and x.strip()), "")
+        # agentmain 的正常 done 以最后一轮 output 结尾；异常会在其后追加错误块。
+        if last and full.rstrip().endswith(last.rstrip()):
+            return last
+    return full
+
+
 class _TaskCard:
-    """飞书任务卡片：单卡片持续 patch；每步一个独立折叠面板（header 显示 summary，展开看详情）。"""
-    _DETAIL_LIMIT = 8000
+    """飞书任务卡片：单卡片持续 patch；每步一个独立折叠面板。
+    修复:
+    - _DETAIL_LIMIT 8000 → 28000 (单 step 内容足够长不用硬切)
+    - 超长 step 自动拆成多个 collapsible_panel (按 ~26000 切)
+    - _push 失败 fatal (None) 时把 self.msg_id 置 None 并 _broken=True,
+      后续 step 全部走 send_message(text) + split_text, 不再尝试 patch
+    - 只 push 一次失败，后续不再重试 patch (避免重试风暴触发限流)
+    """
+    _DETAIL_LIMIT = 28000     # 单 panel markdown 防御性上限
+    _PANEL_CHUNK = 9000       # 单 panel 的 UTF-8 字节目标，给 JSON 转义和卡片结构留足余量
+    _BODY_LIMIT = 30000       # 整卡片序列化字节上限经验值 (Lark ~30KB)
 
     def __init__(self, receive_id, rid_type):
         self.rid, self.rtype = receive_id, rid_type
-        self.steps = []          # [(summary, detail), ...]
+        self.steps = []          # [(turn_no, summary, detail, part_no, total_parts), ...]，仅保存当前卡
+        self.turn_count = 0
+        self.page_no = 1
         self.status = "🤔 思考中..."
         self.final = None
         self.msg_id = None
+        self._broken = False     # 卡片推送失败后切换为 text-only 模式
+        self._summary_fallback_turns = set()
         self.start_fallback_sent = False
         self.final_fallback_sent = False
 
-    def _step_panel(self, idx, summary, detail):
-        detail = detail or "_(无输出)_"
+    def _split_long_detail(self, detail):
+        """按 UTF-8 字节切 detail，优先在段落边界断开，保证单 panel 不挤爆整卡。"""
+        rest = str(detail or "")
+        if not rest:
+            return [""]
+        parts = []
+        while len(rest.encode("utf-8")) > self._PANEL_CHUNK:
+            lo, hi = 1, len(rest)
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if len(rest[:mid].encode("utf-8")) <= self._PANEL_CHUNK:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            cut = rest.rfind("\n\n", max(1, lo // 2), lo + 1)
+            if cut < 1:
+                cut = lo
+            parts.append(rest[:cut].rstrip())
+            rest = rest[cut:].lstrip("\n")
+        parts.append(rest)
+        return parts
+
+    def _step_panel(self, turn_no, summary, detail, part_no=1, total_parts=1):
+        suffix = f" (续{part_no}/{total_parts})" if total_parts > 1 else ""
         if len(detail) > self._DETAIL_LIMIT:
             detail = detail[:self._DETAIL_LIMIT] + f"\n\n…(已截断,共 {len(detail)} 字符)"
         return {
             "tag": "collapsible_panel", "expanded": False,
-            "header": {"title": {"tag": "plain_text", "content": f"Turn {idx} · {summary}"}},
-            "elements": [{"tag": "markdown", "content": detail}],
+            "header": {"title": {"tag": "plain_text", "content": f"Turn {turn_no} · {summary}{suffix}"}},
+            "elements": [{"tag": "markdown", "content": detail or "_(无输出)_"}],
         }
 
     def _build(self):
         els = [{"tag": "markdown", "content": f"**{self.status}**"}]
-        for i, (s, d) in enumerate(self.steps, 1):
-            els.append(self._step_panel(i, s, d))
+        for turn_no, summary, detail, part_no, total_parts in self.steps:
+            els.append(self._step_panel(turn_no, summary, detail, part_no, total_parts))
         if self.final:
             els += [{"tag": "hr"}, {"tag": "markdown", "content": self.final}]
         return _card_raw(els)
 
+    def _card_size(self):
+        return len(self._build().encode("utf-8"))
+
+    def _rollover(self):
+        """开始新的进度卡；旧卡保留为历史页，不再把整段过程降级成普通消息。"""
+        self.steps = []
+        self.final = None
+        self.msg_id = None
+        self.page_no += 1
+
+    def _send_step_summary(self, turn_no, summary):
+        """卡片不可用时只发 step 摘要，禁止把完整 thinking/tool detail 泄露为普通消息。"""
+        if turn_no in self._summary_fallback_turns:
+            return
+        self._summary_fallback_turns.add(turn_no)
+        send_message(self.rid, f"⏳ Turn {turn_no} · {summary}", receive_id_type=self.rtype)
+
     def _push(self):
+        if self._broken:
+            return False
         card = self._build()
+        card_size = len(card.encode("utf-8"))
+        if card_size > self._BODY_LIMIT:
+            self._broken = True
+            print(f"[TaskCard] unexpected card size {card_size}B > {self._BODY_LIMIT}B, switch to summary-only")
+            return False
         if self.msg_id:
             ok = _patch_card(self.msg_id, card)
         else:
             self.msg_id = _send_raw(self.rid, card, "interactive", self.rtype)
             ok = bool(self.msg_id)
-        return ok
+        if ok is None or ok is False:
+            prev_id = self.msg_id
+            self.msg_id = None
+            self._broken = True
+            print(f"[TaskCard] patch/send failed (id={prev_id}), switch to summary-only mode")
+            return False
+        return True
 
     def _fallback_text(self, text, *, final=False):
         attr = "final_fallback_sent" if final else "start_fallback_sent"
         if getattr(self, attr):
             return
         setattr(self, attr, True)
-        send_message(self.rid, text, receive_id_type=self.rtype)
+        if text:
+            for part in split_text(text, 3500):
+                send_message(self.rid, part, receive_id_type=self.rtype)
 
     # ── 公开接口 ──
 
@@ -686,43 +830,83 @@ class _TaskCard:
             self._fallback_text("🤔 思考中...")
 
     def step(self, summary, detail=""):
-        self.steps.append((summary, detail))
-        self.status = f"⏳ 工作中 · Turn {len(self.steps)}"
-        self._push()
+        self.turn_count += 1
+        turn_no = self.turn_count
+        summary = str(summary or "本轮已完成")
+        if len(summary) > 500:
+            summary = summary[:500] + "…"
+        if self._broken:
+            self._send_step_summary(turn_no, summary)
+            return
+
+        chunks = self._split_long_detail(detail)
+        total_parts = len(chunks)
+        for part_no, chunk in enumerate(chunks, 1):
+            record = (turn_no, summary, chunk, part_no, total_parts)
+            self.status = f"⏳ 工作中 · Turn {turn_no} · 进度页 {self.page_no}"
+            self.steps.append(record)
+            if self._card_size() > self._BODY_LIMIT:
+                self.steps.pop()
+                if self.steps:
+                    self._rollover()
+                    self.status = f"⏳ 工作中 · Turn {turn_no} · 进度页 {self.page_no}"
+                    self.steps.append(record)
+            if not self._push():
+                self._send_step_summary(turn_no, summary)
+                return
 
     def done(self, text):
+        final_text = _display_text(text) or "_(无文本输出)_"
         self.status = "✅ 已完成"
-        self.final = text or "_(无文本输出)_"
+        self.final = final_text
+        if self._broken:
+            self._fallback_text(final_text, final=True)
+            return
+        if self._card_size() > self._BODY_LIMIT and self.steps:
+            self._rollover()
+            self.status = "✅ 已完成"
+            self.final = final_text
+        if self._card_size() > self._BODY_LIMIT:
+            self.final = None
+            self._fallback_text(final_text, final=True)
+            return
         if not self._push():
-            self._fallback_text(_display_text(text), final=True)
+            self._fallback_text(final_text, final=True)
 
     def fail(self, msg):
-        self.status = f"❌ {msg}"
+        fail_text = f"❌ {msg}"
+        self.status = fail_text
+        if self._broken:
+            self._fallback_text(fail_text, final=True)
+            return
+        if self._card_size() > self._BODY_LIMIT and self.steps:
+            self._rollover()
+            self.status = fail_text
         if not self._push():
-            self._fallback_text(f"❌ {msg}", final=True)
+            self._fallback_text(fail_text, final=True)
 
 
-def _make_task_hook(card, task_id, on_final):
-    """飞书任务 hook：每轮 patch 卡片状态；结束触发 on_final(raw) 处理附件。"""
+def _make_task_hook(card, task_id, on_progress=None):
+    """飞书任务 hook：记录每轮进展；终态控制可由调用方接管。"""
     def hook(ctx):
         try:
             parent = getattr(ctx.get("self"), "parent", None)
             if getattr(parent, "_fs_active_task_id", None) != task_id:
                 return
-            if ctx.get('exit_reason'):
-                resp = ctx.get('response')
-                raw = resp.content if hasattr(resp, 'content') else str(resp)
-                on_final(raw)
-            elif ctx.get('summary'):
-                detail = _build_step_detail(ctx.get('response'), ctx.get('tool_calls') or [])
-                card.step(ctx['summary'], detail)
+            summary = ctx.get("summary")
+            if summary:
+                detail = _build_step_detail(ctx.get("response"), ctx.get("tool_calls") or [])
+                if on_progress:
+                    on_progress(summary, detail)
+                else:
+                    card.step(summary, detail)
         except Exception as e:
             print(f"[fs hook] error: {e}")
     return hook
 
 
 class FeishuApp(AgentChatMixin):
-    label, source, split_limit = "Feishu", "feishu", 4000
+    label, source, split_limit = "Feishu", "feishu", 3500
 
     async def send_text(self, chat_id, content, *, receive_id=None, receive_id_type="open_id", **_):
         rid = receive_id or chat_id
@@ -745,44 +929,76 @@ class FeishuApp(AgentChatMixin):
         task_id = f"{chat_id}_{uuid.uuid4().hex}"
         hook_key = f"fs_{task_id}"
         card = _TaskCard(rid, receive_id_type)
-        result = {"raw": None, "sent": False}
+        started_at = time.monotonic()
+        result = {"raw": None, "terminal": None, "last_progress": started_at}
         finish_lock = threading.Lock()
 
-        def _finish(raw):
+        def _is_terminal():
             with finish_lock:
-                if result["sent"]:
-                    return
+                return result["terminal"] is not None
+
+        def _progress(summary, detail):
+            with finish_lock:
+                if result["terminal"] is not None:
+                    return False
+                result["last_progress"] = time.monotonic()
+                card.step(summary, detail)
+                return True
+
+        def _finish(item):
+            raw = str(item.get("done", "") or "") if isinstance(item, dict) else str(item or "")
+            terminal_output = _select_terminal_output(item)
+            with finish_lock:
+                if result["terminal"] is not None:
+                    return False
                 result["raw"] = raw
-                result["sent"] = True
-            card.done(_display_text(raw))
-            _send_generated_files(rid, raw, receive_id_type=receive_id_type)
+                result["terminal"] = "done"
+                card.done(_display_text(terminal_output))
+                handler = getattr(self.agent, "handler", None)
+                task_cwd = getattr(handler, "cwd", None)
+                _send_generated_files(rid, raw, receive_id_type=receive_id_type, task_cwd=task_cwd)
+                return True
+
+        def _fail(msg):
+            with finish_lock:
+                if result["terminal"] is not None:
+                    return False
+                result["terminal"] = "failed"
+                card.fail(msg)
+                return True
 
         try:
             await asyncio.to_thread(card.start)
             if not hasattr(self.agent, '_turn_end_hooks'):
                 self.agent._turn_end_hooks = {}
-            self.agent._turn_end_hooks[hook_key] = _make_task_hook(card, task_id, _finish)
+            self.agent._turn_end_hooks[hook_key] = _make_task_hook(card, task_id, _progress)
             self.agent._fs_active_task_id = task_id
             dq = self.agent.put_task(f"{FILE_HINT}\n\n{text}", source=self.source, images=images or None)
-            start = time.time()
-            while state["running"] and not result["sent"]:
+            while state["running"] and not _is_terminal():
                 try:
                     item = await asyncio.to_thread(dq.get, True, 1)
                 except Q.Empty:
                     item = None
                 if item and "done" in item:
-                    await asyncio.to_thread(_finish, item.get("done", ""))
+                    await asyncio.to_thread(_finish, item)
                     break
-                if time.time() - start > AGENT_TIMEOUT_SEC:
+                now = time.monotonic()
+                with finish_lock:
+                    idle_for = now - result["last_progress"]
+                if now - started_at > AGENT_MAX_RUNTIME_SEC:
                     self.agent.abort()
-                    await asyncio.to_thread(card.fail, "任务超时")
+                    await asyncio.to_thread(_fail, f"任务超过最长运行时间（{AGENT_MAX_RUNTIME_SEC}秒）")
                     break
-            if not state["running"] and not result["sent"]:
+                if idle_for > AGENT_IDLE_TIMEOUT_SEC:
+                    self.agent.abort()
+                    await asyncio.to_thread(_fail, f"任务长时间无进展（{AGENT_IDLE_TIMEOUT_SEC}秒）")
+                    break
+            if not state["running"] and not _is_terminal():
                 self.agent.abort()
-                await asyncio.to_thread(card.fail, "已停止")
+                await asyncio.to_thread(_fail, "已停止")
         except Exception as e:
             traceback.print_exc()
-            await asyncio.to_thread(card.fail, f"错误: {e}")
+            await asyncio.to_thread(_fail, f"错误: {e}")
         finally:
             if getattr(self.agent, "_fs_active_task_id", None) == task_id:
                 try:
@@ -845,8 +1061,8 @@ def handle_message(data):
 
 
 def main():
-    global client, APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH
-    APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH = _feishu_config()
+    global client, APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH, APP_DOMAIN
+    APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH, APP_DOMAIN = _feishu_config()
     if not APP_ID or not APP_SECRET:
         print(f"错误: 请在 mykey 配置中填写 fs_app_id 和 fs_app_secret\n配置文件: {CONFIG_PATH}", flush=True)
         sys.exit(1)
@@ -855,7 +1071,7 @@ def main():
     while True:
         try:
             client = create_client()
-            cli = lark.ws.Client(APP_ID, APP_SECRET, event_handler=handler, log_level=lark.LogLevel.INFO)
+            cli = lark.ws.Client(APP_ID, APP_SECRET, event_handler=handler, log_level=lark.LogLevel.INFO, domain=APP_DOMAIN)
             print("=" * 50 + "\n飞书 Agent 已启动（长连接模式）\n" + f"App ID: {APP_ID}\n配置: {CONFIG_PATH}\n等待消息...\n" + "=" * 50, flush=True)
             cli.start()
             retry_delay = 5
@@ -877,4 +1093,10 @@ if __name__ == "__main__":
     if args.check or args.check_agent:
         print(json.dumps(check_config(init_agent=args.check_agent), ensure_ascii=False, indent=2), flush=True)
     else:
+        try:
+            _fsapp_lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            _fsapp_lock.bind(("127.0.0.1", 19532))
+        except OSError:
+            print("[Feishu] Another instance running, exiting.")
+            sys.exit(1)
         main()

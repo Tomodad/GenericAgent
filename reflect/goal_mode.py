@@ -72,17 +72,17 @@ BUDGET_LIMIT_PROMPT = """[Goal Mode — 预算耗尽，收口]
 def check():
     state = _load()
     if state is None: return '/exit'
-    
+
     status = state.get('status', 'running')
     if status != 'running': return '/exit'
-    
+
     start_time = state.get('start_time', time.time())
     budget_sec = state.get('budget_seconds', 1800)  # 默认30分钟
     elapsed = time.time() - start_time
     remaining = budget_sec - elapsed
     turn = state.get('turns_used', 0) + 1
     max_turns = state.get('max_turns', 50)  # 防空转上限
-    
+
     # 预算耗尽或轮次上限
     if remaining <= 0 or turn > max_turns:
         state['status'] = 'wrapping_up'
@@ -92,7 +92,7 @@ def check():
             budget_min=budget_sec / 60,
             done_prompt=state.get('done_prompt', '')
         )
-    
+
     # 正常continuation
     state['turns_used'] = turn
     _save(state)
@@ -106,7 +106,7 @@ def check():
 def on_done(result):
     state = _load()
     if state is None: return
-    
+
     if state.get('status') == 'wrapping_up':
         state['status'] = 'done_budget'
         state['end_time'] = time.time()

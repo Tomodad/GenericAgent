@@ -18,7 +18,7 @@ import time, json, re, threading, queue
 from datetime import datetime
 from agentmain import GeneraticAgent
 
-st.set_page_config(page_title="Cowork", layout="wide")
+st.set_page_config(page_title="Tomo", layout="wide")
 
 # ─── Anthropic Light Theme CSS ───
 ANTHROPIC_CSS = """
