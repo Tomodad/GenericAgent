@@ -28,7 +28,7 @@ def code_run(code, code_type="python", timeout=60, cwd=None, code_cwd=None, stop
         tmp_file.write(code)
         tmp_path = tmp_file.name
         tmp_file.close()
-        cmd = [sys.executable, "-X", "utf8", "-u", tmp_path]
+        cmd = [sys.executable, "-X", "utf8", "-u", tmp_path]   
     elif code_type in ["powershell", "bash", "sh", "shell", "ps1", "pwsh"]:
         if os.name == 'nt':
             _ps = "pwsh" if shutil.which("pwsh") else "powershell"
@@ -81,7 +81,7 @@ def code_run(code, code_type="python", timeout=60, cwd=None, code_cwd=None, stop
         stdout_str = "".join(full_stdout)
         status = "success" if exit_code == 0 else "error"
         status_icon = "✅" if exit_code == 0 else "❌"
-        if exit_code is None: status_icon = "⏳"
+        if exit_code is None: status_icon = "⏳" 
         output_snippet = smart_format(stdout_str, max_str_len=600, omit_str='\n\n[omitted long output]\n\n')
         output_snippet = re.sub(r'`{4,}', lambda m: m.group(0)[:3] + '\u200b' + m.group(0)[3:], output_snippet)
         yield f"[Status] {status_icon} Exit Code: {exit_code}\n[Stdout]\n{output_snippet}\n"
@@ -113,13 +113,7 @@ def first_init_driver():
         time.sleep(2)
         sess = driver.get_all_sessions()
         if len(sess) > 0: break
-        if i == 4:
-            # 后台线程静默触发example.com,不阻塞CDP会话建立/不污染主循环
-            threading.Thread(
-                target=webbrowser.open,
-                args=("https://example.com",),
-                daemon=True
-            ).start()
+        if i == 4: webbrowser.open("https://example.com")
 
 def web_scan(tabs_only=False, switch_tab_id=None, text_only=False, maxlen=35000):
     """获取当前页面的简化HTML内容和标签页列表。注意：简化过程会过滤边栏、浮动元素等非主体内容。
@@ -132,7 +126,7 @@ def web_scan(tabs_only=False, switch_tab_id=None, text_only=False, maxlen=35000)
         if len(driver.get_all_sessions()) == 0:
             return {"status": "error", "msg": "没有可用的浏览器标签页，查L3记忆分析原因。"}
         tabs = []
-        for sess in driver.get_all_sessions():
+        for sess in driver.get_all_sessions(): 
             sess.pop('connected_at', None)
             sess.pop('type', None)
             sess['url'] = sess.get('url', '')[:50] + ("..." if len(sess.get('url', '')) > 50 else "")
@@ -151,7 +145,7 @@ def web_scan(tabs_only=False, switch_tab_id=None, text_only=False, maxlen=35000)
         return result
     except Exception as e:
         return {"status": "error", "msg": format_error(e)}
-
+    
 def format_error(e):
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.extract_tb(exc_traceback)
@@ -195,8 +189,7 @@ def expand_file_refs(text, base_dir=None):
         if start < 1 or end > len(lines) or start > end: raise ValueError(f"行号越界: {path} 共{len(lines)}行, 请求{start}-{end}")
         return ''.join(lines[start-1:end])
     return re.sub(pattern, replacer, text)
-
-
+    
 def _file_newline(path):
     endings = set(re.findall(rb'\r\n|[\r\n]', Path(path).read_bytes())) if os.path.exists(path) else set()
     return next(iter(endings)).decode() if len(endings) == 1 else None
@@ -279,7 +272,7 @@ def smart_format(data, max_str_len=100, omit_str=' ... '):
     return f"{data[:max_str_len//2]}{omit_str}{data[-max_str_len//2:]}"
 
 def consume_file(dr, file):
-    if dr and os.path.exists(os.path.join(dr, file)):
+    if dr and os.path.exists(os.path.join(dr, file)): 
         with open(os.path.join(dr, file), encoding='utf-8', errors='replace') as f: content = f.read()
         os.remove(os.path.join(dr, file))
         return content
@@ -300,7 +293,7 @@ class GenericAgentHandler(BaseHandler):
         return int(l * multiplier / args.get('_tool_num', 1))
     def _get_abs_path(self, path):
         if not path: return ""
-        return os.path.abspath(os.path.join(self.cwd, path))
+        return os.path.abspath(os.path.join(self.cwd, path))   
 
     def _extract_code_block(self, response, code_type):
         code_type = {'python':'python|py', 'powershell':'powershell|ps1|pwsh', 'bash':'bash|sh|shell'}.get(code_type, re.escape(code_type))
@@ -309,11 +302,12 @@ class GenericAgentHandler(BaseHandler):
 
     def do_code_run(self, args, response):
         '''执行代码片段，有长度限制，不允许代码中放大量数据，如有需要应当通过文件读取进行。'''
-        code_type = args.get("type", "python")
+        code_type = args.get("type") or "python"
         code = args.get("code") or args.get("script")
         if not code:
             code = self._extract_code_block(response, code_type)
             if not code: return StepOutcome("[Error] Code missing. Must use reply code block or 'script' arg.", next_prompt="\n")
+        if not args.get("type") and re.match(r"^\s*(ls|cd|pwd|dir|echo|cat|git|pip|npm|curl|ssh)(\s|$)", code): code_type = "shell"
         timeout = _arg(args, "timeout", 60, int)
         raw_path = os.path.join(self.cwd, args.get("cwd", './'))
         cwd = os.path.normpath(os.path.abspath(raw_path))
@@ -333,14 +327,14 @@ class GenericAgentHandler(BaseHandler):
         else: result = yield from code_run(code, code_type, timeout, cwd, code_cwd=code_cwd, stop_signal=self.code_stop_signal, maxlen=maxlen, myprint=self.print)
         next_prompt = self._get_anchor_prompt(skip=args.get('_index', 0) > 0)
         return StepOutcome(result, next_prompt=next_prompt)
-
+    
     def do_ask_user(self, args, response):
         question = args.get("question", "请提供输入：")
         candidates = args.get("candidates", [])
         result = ask_user(question, candidates)
         yield f"Waiting for your answer ...\n"
         return StepOutcome(result, next_prompt="", should_exit=True)
-
+    
     def do_web_scan(self, args, response):
         '''获取当前页面内容和标签页列表。也可用于切换标签页。
         注意：HTML经过简化，边栏/浮动元素等可能被过滤。如需查看被过滤的内容请用execute_js。
@@ -355,7 +349,7 @@ class GenericAgentHandler(BaseHandler):
         if content: result = json.dumps(result, ensure_ascii=False, default=json_default) + f"\n```html\n{content}\n```"
         next_prompt = "\n"
         return StepOutcome(result, next_prompt=next_prompt)
-
+    
     def do_web_execute_js(self, args, response):
         '''web情况下的优先使用工具，执行任何js达成对浏览器的*完全*控制。支持将结果保存到文件供后续读取分析。'''
         script = args.get("script", "") or self._extract_code_block(response, "javascript")
@@ -396,7 +390,7 @@ class GenericAgentHandler(BaseHandler):
         yield f"\n{str(result)}\n"
         next_prompt = self._get_anchor_prompt(skip=args.get('_index', 0) > 0)
         return StepOutcome(result, next_prompt=next_prompt)
-
+    
     def do_file_write(self, args, response):
         '''用于对整个文件的大量处理，精细修改要用file_patch。
         需要将要写入的内容放在<file_content>标签内，或者放在代码块中'''
@@ -411,7 +405,7 @@ class GenericAgentHandler(BaseHandler):
             blocks = re.findall(r"```[^\n]*\n([\s\S]*?)```", text)
             if blocks: return blocks[-1].strip()
             return None
-
+        
         content = args.get('content') or extract_robust_content(response.content)
         if not content:
             yield f"[Status] ❌ 失败: 未在回复中找到<file_content>代码块内容\n"
@@ -430,7 +424,7 @@ class GenericAgentHandler(BaseHandler):
         except Exception as e:
             yield f"[Status] ❌ 写入异常: {str(e)}\n"
             return StepOutcome({"status": "error", "msg": str(e)}, next_prompt="\n")
-
+        
     def do_file_read(self, args, response):
         '''读取文件内容。从第start行开始读取。如有keyword则返回第一个keyword(忽略大小写)周边内容'''
         path = self._get_abs_path(args.get("path", ""))
@@ -441,29 +435,20 @@ class GenericAgentHandler(BaseHandler):
         show_linenos = _arg(args, "show_linenos", True, bool)
         result = file_read(path, start=start, keyword=keyword,
                            count=count, show_linenos=show_linenos)
-        if show_linenos and not result.startswith("Error:"): result = '由于设置了show_linenos，以下返回信息为：(行号|)内容 。\n' + result
+        if show_linenos and not result.startswith("Error:"): result = '由于设置了show_linenos，以下返回信息为：(行号|)内容 。\n' + result 
         if ' ... [TRUNCATED]' in result: result += '\n\n（某些行被截断，如需完整内容可改用 code_run 读取）'
         maxlen = self._get_tool_maxlen(15000, args)
         result = smart_format(result, max_str_len=maxlen, omit_str='\n\n[omitted long content]\n\n')
         next_prompt = self._get_anchor_prompt(skip=args.get('_index', 0) > 0)
         log_memory_access(path)
-        if 'memory' in path or 'sop' in path:
+        if 'memory' in path or 'sop' in path: 
             next_prompt += "\n[SYSTEM TIPS] 正在读取记忆或SOP文件，若决定按sop执行请提取sop中的关键点（特别是靠后的）update working memory."
         return StepOutcome(result, next_prompt=next_prompt)
+    
     def export_history(self, fn):
         with open(fn, 'w', encoding='utf-8') as f: json.dump(self.parent.llmclient.backend.history, f, ensure_ascii=False)
     def enter_project_mode(self, name): self.parent._ga_project_mode_name = name
-    def _in_plan_mode(self): return self.working.get('in_plan_mode')
-    def _exit_plan_mode(self): self.working.pop('in_plan_mode', None)
-    def enter_plan_mode(self, plan_path):
-        self.working['in_plan_mode'] = plan_path; self.max_turns = 100
-        self.print(f"[Info] Entered plan mode with plan file: {plan_path}")
-        return plan_path
-    def _check_plan_completion(self):
-        if not os.path.isfile(p:=self._in_plan_mode() or ''): return None
-        try: return len(re.findall(r'\[ \]', open(p, encoding='utf-8', errors='replace').read()))
-        except: return None
-
+    
     def do_update_working_checkpoint(self, args, response):
         '''为整个任务设定后续需要临时记忆的重点。'''
         key_info = args.get("key_info", "")
@@ -491,14 +476,11 @@ class GenericAgentHandler(BaseHandler):
             return self._retry_or_exit("[ERROR] Blank response, regenerate and tooluse")
         if '[!!! 流异常中断' in content[-100:] or '!!!Error:' in content[50:][-100:] or (content.endswith('</summary>') and len(content) < 100):
             return self._retry_or_exit("[ERROR] Incomplete response. Regenerate and tooluse.")
+        if content.rstrip().endswith('</｜DSML｜ calls>'):
+            return self._retry_or_exit("[ERROR] Tool call format invalid; no tool was called. Regenerate using proper tool calls.")
         if 'max_tokens !!!]' in content[-100:]:
             return self._retry_or_exit("[ERROR] max_tokens limit reached. Use multi small steps to do it.")
         
-        if self._in_plan_mode() and any(kw in content for kw in ['任务完成', '全部完成', '已完成所有', '🏁']):
-            if 'VERDICT' not in content and '[VERIFY]' not in content and '验证subagent' not in content:
-                yield "[Warn] Plan模式完成声明拦截。\n"
-                return StepOutcome({}, next_prompt="⛔ [验证拦截] 检测到你在plan模式下声称完成，但未执行[VERIFY]验证步骤。请先按plan_sop §四启动验证subagent，获得VERDICT后才能声称完成。")
-
         # 2. 检测"包含较大代码块但未调用工具"的情况
         # 关键特征：恰好1个大代码块 + 代码块直接结尾（后面只有空白）
         code_block_pattern = r"```[a-zA-Z0-9_]*\n[\s\S]{50,}?```"
@@ -521,15 +503,9 @@ class GenericAgentHandler(BaseHandler):
                         "并明确是否还需要额外的实际操作。"
                     )
                     return StepOutcome({}, next_prompt=next_prompt)
-
-        if self._in_plan_mode():
-            remaining = self._check_plan_completion()
-            if remaining == 0:
-                self._exit_plan_mode(); yield "[Info] Plan完成：plan.md中0个[ ]残留，退出plan模式。\n"
-        
         #yield "[Info] Final response to user.\n"
         return StepOutcome(response, next_prompt=None)
-
+    
     def do_start_long_term_update(self, args, response):
         '''Agent觉得当前任务完成后有重要信息需要记忆时调用此工具。'''
         prompt = get_global_memory() + '''【记忆提纯】任务完成或到达重要检查点后，按L0提取最近一次任务中【事实验证成功且长期有效】的环境事实、用户偏好、重要步骤；已在整理则不重复启动。
@@ -540,6 +516,7 @@ class GenericAgentHandler(BaseHandler):
         path = './memory/memory_management_sop.md'
         if os.path.exists(path): result = 'This is L0:\n' + file_read(path, show_linenos=False)
         else: result = "Memory Management SOP not found. Do not update memory."
+        if (l1 := load_L1()) and len(l1) > 6000: result += 'L1 (insight or index) is too large, follow L0 and cleanup sop to fix it!'
         if self.current_turn < 10: result, prompt = 'start_long_term_update is only used after completing a long turn task!', '\n'
         return StepOutcome(result, next_prompt=prompt)
 
@@ -568,7 +545,7 @@ class GenericAgentHandler(BaseHandler):
         if self.working.get('key_info'): prompt += f"\n<key_info>{self.working.get('key_info')}</key_info>"
         if getattr(self.parent, 'verbose', False): self.print(prompt)
         return prompt
-
+    
     def turn_end_callback(self, response, tool_calls, tool_results, turn, next_prompt, exit_reason):
         _c = re.sub(r'```.*?```|<thinking>.*?</thinking>', '', response.content, flags=re.DOTALL)
         rsumm = re.search(r"<summary>(.*?)</summary>", _c, re.DOTALL)
@@ -578,19 +555,14 @@ class GenericAgentHandler(BaseHandler):
             self.history_info.append('[Agent] ' + summary)
         if not rsumm and tool_calls and tool_calls[0]['tool_name'] != 'no_tool':
             next_prompt += "\n\n\n[TIPS] 必须在回复文本中包含<summary>！\n\n"
-        _plan = self._in_plan_mode()
 
-        if turn % 175 == 0 and (not _plan):
+        if turn % 175 == 0:
             next_prompt += f"\n\n[DANGER] Turn {turn}. Must call ask_user to summarize progress and get direction. No more blind retries."
-        elif turn % 13 == 0:
+        elif turn % 17 == 0:
             next_prompt += f"\n\n[DANGER] Turn {turn}. Call update_working_checkpoint to save key context. Stop ineffective retries; if no progress, switch strategy: 1) Probe physical boundaries 2) **Re-read relevant SOPs**"
-        elif turn % 31 == 0:
+        elif turn % 41 == 0:
             next_prompt += f"\n\n[DANGER] Turn {turn}. Write checkpoints/key findings/tried approaches to a **file** for future reference (not only working_checkpoint!). Avoid losing critical info."
-        elif turn % 10 == 0: next_prompt += get_global_memory()
-
-        if _plan and turn >= 10 and turn % 5 == 0:
-            next_prompt = f"[Plan Hint] 正在计划模式。必须 file_read({_plan}) 确认当前步骤，回复开头引用：📌 当前步骤：...\n\n" + next_prompt
-        if _plan and turn >= 190: next_prompt += f"\n\n[DANGER] Plan模式已运行 {turn} 轮，已达上限。必须 ask_user 汇报进度并确认是否继续。"
+        elif turn % 15 == 0: next_prompt += f'<global_memory>{get_global_memory()}</global_memory>'
 
         injkeyinfo = self.parent.extrakeyinfo or consume_file(self.parent.task_dir, '_keyinfo')
         injprompt = self.parent.intervene or consume_file(self.parent.task_dir, '_intervene')
@@ -600,11 +572,17 @@ class GenericAgentHandler(BaseHandler):
         for hook in list(getattr(self.parent, '_turn_end_hooks', {}).values()): hook(locals())  # current readonly
         return next_prompt
 
+def load_L1():
+    try:
+        with open(os.path.join(script_dir, 'memory/global_mem_insight.txt'), 'r', encoding='utf-8', errors='replace') as f: content = f.read()
+        return content
+    except FileNotFoundError: return ''
+
 def get_global_memory():
     prompt = "\n"
     try:
         suffix = '_en' if os.environ.get('GA_LANG', '') == 'en' else ''
-        with open(os.path.join(script_dir, 'memory/global_mem_insight.txt'), 'r', encoding='utf-8', errors='replace') as f: insight = f.read()
+        insight = load_L1()
         with open(os.path.join(script_dir, f'assets/insight_fixed_structure{suffix}.txt'), 'r', encoding='utf-8') as f: structure = f.read()
         prompt += f'cwd = {os.path.join(script_dir, "temp")} (./)\n'
         prompt += f"\n[Memory] (../memory)\n"
