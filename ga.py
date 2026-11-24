@@ -399,6 +399,8 @@ class GenericAgentHandler(BaseHandler):
         mode = args.get("mode", "overwrite")  # overwrite/append/prepend
         action_str = {"prepend": "Prepending to", "append": "Appending to"}.get(mode, "Overwriting")
         yield f"[Action] {action_str} file: {os.path.basename(path)}\n"
+        if 'global_mem_insight.txt' in path:
+            return StepOutcome({"status": "error", "msg": "L1 must be patched carefully, no whole write! See template in assets/, the patch should be **short**, **literal** index, **general** enough to reuse next time in different context!"}, next_prompt="\n")
 
         def extract_robust_content(text):
             tags = re.findall(r"<file_content[^>]*>(.*?)</file_content>", text, re.DOTALL)
@@ -478,8 +480,8 @@ class GenericAgentHandler(BaseHandler):
         if '[!!! 流异常中断' in content[-100:] or '!!!Error:' in content[50:][-100:] or (content.endswith('</summary>') and len(content) < 100):
             return self._retry_or_exit("[ERROR] Incomplete response. Regenerate and tooluse.")
         tail = content.rstrip()[-50:]
-        if 'DSML' in tail and '｜' in tail and tail.endswith('>'):
-            return self._retry_or_exit("[ERROR] Tool call format invalid; no tool was called. Regenerate using proper tool calls.")
+        if 'DSML' in tail or tail.endswith('>'):
+            return self._retry_or_exit("[ERROR] No tool was called and the response ended with DSML or an XML-like tag. If action is needed, use proper tool calls; otherwise, finish with a plain-language explanation rather than a tag.")
         if 'max_tokens !!!]' in content[-100:]:
             return self._retry_or_exit("[ERROR] max_tokens limit reached. Use multi small steps to do it.")
         
@@ -513,9 +515,10 @@ class GenericAgentHandler(BaseHandler):
         prompt = get_global_memory() + '''【记忆提纯】任务完成或到达重要检查点后，按L0提取最近一次任务中【事实验证成功且长期有效】的环境事实、用户偏好、重要步骤；已在整理则不重复启动。
 先读后patch，将已验证、长期有用且难以重建的新知识融入旧条目，合并重复、压缩冗述，不堆叠流水账。以更少文字保留更高复用价值；无提纯价值则跳过，索引按需同步，非必要不可增加触发词。
 禁止：临时状态、推理过程、未验证信息、通用常识、易重建细节；不得将模型推测或建议记作用户要求。
+**只允许记忆未来会复用的信息，需要高度概括，禁止无脑追加。**
 记忆整理仅是内部收尾；完成或跳过后，仍须向用户报告原任务结果。'''
         yield "[Info] Start distilling good memory for long-term storage.\n"
-        path = './memory/memory_management_sop.md'
+        path = os.path.join(script_dir, 'memory', 'memory_management_sop.md')
         if os.path.exists(path): result = 'This is L0:\n' + file_read(path, show_linenos=False)
         else: result = "Memory Management SOP not found. Do not update memory."
         if (l1 := load_L1()) and len(l1) > 6000: result += 'L1 (insight or index) is too large, follow L0 and cleanup sop to fix it!'
